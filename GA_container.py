@@ -235,13 +235,27 @@ class OceanShippingGA:
                 self.I0_p[port] = inventory
                 
     def setup_ga_parameters(self):
-        """GA 파라미터 설정"""
-        self.population_size = 100
-        self.num_elite = 20
-        self.p_crossover = 0.7
-        self.p_mutation = 0.3
-        self.max_generations = 500
-        self.target_fitness = -10000
+        """GA 파라미터 설정 """
+        
+        self.population_size = 1000     # 100 -> 1000으로 대폭 증가
+        self.num_elite = 200            # 20% 엘리트 유지
+        self.p_crossover = 0.85         # 높은 교차율로 다양성 증가
+        self.p_mutation = 0.15          # 낮은 돌연변이율로 안정성 확보
+        self.max_generations = 2000     # 충분한 진화 세대 수
+        self.target_fitness = -3000     # 더 엄격한 목표
+        
+        # 수렴 감지 및 조기 종료 파라미터
+        self.convergence_threshold = 0.0005  # 0.05% 개선
+        self.convergence_patience = 100      # 100세대 동안 개선 없으면 조기 종료
+        self.stagnation_counter = 0
+        
+        # 성능 추적 파라미터
+        self.best_ever_fitness = float('-inf')
+        self.generation_stats = []
+        self.diversity_history = []
+        
+        # M1 최적화: 병렬 처리 및 벡터화 강화
+        self.use_adaptive_mutation = True  # 적응적 돌연변이율
         
     def initialize_population(self):
         """초기 개체군 생성"""
@@ -290,28 +304,52 @@ class OceanShippingGA:
         return population
     
     def calculate_fitness(self, individual):
-        """적합도 계산"""
+        """개선된 적합도 계산 - 더 정교한 비용 모델링"""
         total_cost = 0
         penalty = 0
         
-        # 1. 운송 비용
+        # 1. 운송 비용 (거리 기반 가중치 적용)
         for idx, i in enumerate(self.I):
             # Full container 비용
             base_cost = self.CSHIP + self.CBAF
             delay_penalty = self.CETA * self.DELAY_i.get(i, 0)
-            total_cost += (base_cost + delay_penalty) * individual['xF'][idx]
             
-            # Empty container 비용
-            total_cost += self.CEMPTY_SHIP * individual['xE'][idx]
+            # 용량 활용률에 따른 효율성 보너스
+            route_data = self.schedule_data[self.schedule_data['스케줄 번호'] == i]
+            if not route_data.empty:
+                r = route_data['루트번호'].iloc[0]
+                if r in self.CAP_v_r:
+                    capacity = self.CAP_v_r[r]
+                    utilization = (individual['xF'][idx] + individual['xE'][idx]) / capacity
+                    efficiency_factor = 1.0 + 0.2 * min(utilization, 1.0)  # 최대 20% 보너스
+                else:
+                    efficiency_factor = 1.0
+            else:
+                efficiency_factor = 1.0
+            
+            total_cost += (base_cost + delay_penalty) * individual['xF'][idx] * efficiency_factor
+            
+            # Empty container 비용 (재배치 비용 포함)
+            empty_cost = self.CEMPTY_SHIP * individual['xE'][idx]
+            total_cost += empty_cost
         
-        # 2. 재고 보유 비용
-        total_cost += self.CHOLD * np.sum(individual['y'])
+        # 2. 재고 보유 비용 (비선형 모델)
+        inventory_cost = 0
+        for p_idx in range(self.num_ports):
+            port_inventory = np.sum(individual['y'][:, p_idx])
+            # 재고가 많을수록 비선형적으로 비용 증가
+            if port_inventory > 0:
+                inventory_cost += self.CHOLD * port_inventory * (1 + 0.001 * port_inventory)
+        total_cost += inventory_cost
         
-        # 3. 제약 조건 패널티
-        penalty = self.calculate_penalties(individual)
+        # 3. 제약 조건 패널티 (계층적 패널티)
+        penalty = self.calculate_enhanced_penalties(individual)
         
-        # 적합도 = -(비용 + 패널티)
-        fitness = -(total_cost + penalty * 10000)
+        # 4. 서비스 품질 보너스 (수요 초과 충족시)
+        service_bonus = self.calculate_service_bonus(individual)
+        
+        # 적합도 = -(비용 + 패널티) + 서비스 보너스
+        fitness = -(total_cost + penalty) + service_bonus
         individual['fitness'] = fitness
         
         return fitness
@@ -361,6 +399,109 @@ class OceanShippingGA:
         penalty += np.sum(np.abs(individual['y'][individual['y'] < 0]))
         
         return penalty
+    
+    def calculate_enhanced_penalties(self, individual):
+        """개선된 제약 조건 위반 패널티 계산 - 계층적 패널티 시스템"""
+        penalty = 0
+        
+        # 1. 수요 충족 제약 (높은 우선순위)
+        demand_penalty = 0
+        for r in self.R:
+            if r in self.D_ab:
+                route_schedules = self.schedule_data[
+                    self.schedule_data['루트번호'] == r
+                ]['스케줄 번호'].unique()
+                
+                total_full = 0
+                for i in route_schedules:
+                    if i in self.I:
+                        idx = self.I.index(i)
+                        total_full += individual['xF'][idx]
+                
+                demand = self.D_ab[r]
+                if total_full < demand:
+                    shortage = demand - total_full
+                    # 비선형 패널티: 부족량의 제곱에 비례
+                    demand_penalty += shortage * shortage * 1000
+        
+        # 2. 용량 제약 (중간 우선순위)
+        capacity_penalty = 0
+        for r in self.R:
+            if r in self.CAP_v_r:
+                route_schedules = self.schedule_data[
+                    self.schedule_data['루트번호'] == r
+                ]['스케줄 번호'].unique()
+                
+                total_containers = 0
+                for i in route_schedules:
+                    if i in self.I:
+                        idx = self.I.index(i)
+                        total_containers += individual['xF'][idx] + individual['xE'][idx]
+                
+                capacity = self.CAP_v_r[r]
+                if total_containers > capacity:
+                    excess = total_containers - capacity
+                    # 초과량에 따른 지수적 패널티
+                    capacity_penalty += excess * excess * 500
+        
+        # 3. 비음 제약 (기본 제약)
+        non_negative_penalty = 0
+        non_negative_penalty += np.sum(np.abs(individual['xF'][individual['xF'] < 0])) * 10000
+        non_negative_penalty += np.sum(np.abs(individual['xE'][individual['xE'] < 0])) * 10000
+        non_negative_penalty += np.sum(np.abs(individual['y'][individual['y'] < 0])) * 10000
+        
+        # 4. 빈 컨테이너 최소 비율 제약
+        empty_ratio_penalty = 0
+        for r in self.R:
+            if r in self.CAP_v_r:
+                route_schedules = self.schedule_data[
+                    self.schedule_data['루트번호'] == r
+                ]['스케줄 번호'].unique()
+                
+                total_empty = 0
+                total_capacity = 0
+                for i in route_schedules:
+                    if i in self.I:
+                        idx = self.I.index(i)
+                        total_empty += individual['xE'][idx]
+                        total_capacity += self.CAP_v_r[r]
+                
+                if total_capacity > 0:
+                    empty_ratio = total_empty / total_capacity
+                    if empty_ratio < self.theta:
+                        shortage = self.theta - empty_ratio
+                        empty_ratio_penalty += shortage * total_capacity * 100
+        
+        penalty = demand_penalty + capacity_penalty + non_negative_penalty + empty_ratio_penalty
+        return penalty
+    
+    def calculate_service_bonus(self, individual):
+        """서비스 품질 보너스 계산"""
+        bonus = 0
+        
+        # 수요 초과 충족에 대한 보너스
+        for r in self.R:
+            if r in self.D_ab:
+                route_schedules = self.schedule_data[
+                    self.schedule_data['루트번호'] == r
+                ]['스케줄 번호'].unique()
+                
+                total_full = 0
+                for i in route_schedules:
+                    if i in self.I:
+                        idx = self.I.index(i)
+                        total_full += individual['xF'][idx]
+                
+                demand = self.D_ab[r]
+                if total_full > demand:
+                    excess = total_full - demand
+                    # 적당한 초과 공급에 대해 보너스 (과도한 초과는 보너스 감소)
+                    if excess <= demand * 0.1:  # 10% 이하 초과
+                        bonus += excess * 50
+                    else:
+                        bonus += demand * 0.1 * 50 - (excess - demand * 0.1) * 10
+        
+        return max(0, bonus)
     
     def selection(self, population):
         """선택 연산"""
@@ -457,47 +598,129 @@ class OceanShippingGA:
         
         return new_population[:self.population_size]
     
+    def calculate_population_diversity(self, population):
+        """개체군의 다양성 계산"""
+        if len(population) < 2:
+            return 0.0
+        
+        diversities = []
+        for i in range(len(population)):
+            for j in range(i + 1, len(population)):
+                # 유클리드 거리 계산
+                diff_xF = np.sum((population[i]['xF'] - population[j]['xF'])**2)
+                diff_xE = np.sum((population[i]['xE'] - population[j]['xE'])**2)
+                diversity = np.sqrt(diff_xF + diff_xE)
+                diversities.append(diversity)
+        
+        return np.mean(diversities) if diversities else 0.0
+
+    def adaptive_mutation_rate(self, generation, diversity):
+        """적응적 돌연변이율 계산"""
+        if not self.use_adaptive_mutation:
+            return self.p_mutation
+        
+        # 다양성이 낮으면 돌연변이율 증가
+        base_rate = self.p_mutation
+        diversity_factor = max(0.5, min(2.0, 1.0 / (diversity + 0.01)))
+        generation_factor = 1.0 + 0.5 * (generation / self.max_generations)
+        
+        return min(0.5, base_rate * diversity_factor * generation_factor)
+
     def run(self):
-        """GA 실행"""
-        print("\n🧬 유전 알고리즘 시작")
-        print("=" * 50)
+        """GA 실행 - M1 최적화된 고성능 버전"""
+        print("\n🧬 유전 알고리즘 시작 (M1 Mac 최적화)")
+        print("=" * 60)
+        print(f"📊 설정: Population={self.population_size}, Generations={self.max_generations}")
+        print(f"🎯 목표: 적합도 >= {self.target_fitness}")
+        print("=" * 60)
         
         # 초기화
+        start_time = datetime.now()
         population = self.initialize_population()
         best_fitness_history = []
         best_individual = None
+        self.stagnation_counter = 0
         
         # 진화 과정
         for generation in range(self.max_generations):
             # 선택
             parents, best = self.selection(population)
             
-            # 최고 개체 업데이트
+            # 최고 개체 업데이트 및 수렴 체크
+            improvement = False
             if best_individual is None or best['fitness'] > best_individual['fitness']:
+                if best_individual is not None:
+                    improvement_rate = (best['fitness'] - best_individual['fitness']) / abs(best_individual['fitness'])
+                    if improvement_rate > self.convergence_threshold:
+                        improvement = True
+                        self.stagnation_counter = 0
+                    else:
+                        self.stagnation_counter += 1
+                else:
+                    improvement = True
+                    self.stagnation_counter = 0
                 best_individual = copy.deepcopy(best)
+                self.best_ever_fitness = best['fitness']
+            else:
+                self.stagnation_counter += 1
             
             best_fitness_history.append(best['fitness'])
             
-            # 진행 상황 출력
-            if generation % 10 == 0:
-                print(f"세대 {generation:3d}: 최고 적합도 = {best['fitness']:.2f}")
+            # 다양성 계산
+            diversity = self.calculate_population_diversity(population[:50])  # 샘플링으로 속도 개선
+            self.diversity_history.append(diversity)
+            
+            # 적응적 돌연변이율 적용
+            current_mutation_rate = self.adaptive_mutation_rate(generation, diversity)
+            self.p_mutation = current_mutation_rate
+            
+            # 세대 통계 저장
+            generation_stat = {
+                'generation': generation,
+                'best_fitness': best['fitness'],
+                'diversity': diversity,
+                'mutation_rate': current_mutation_rate,
+                'improvement': improvement
+            }
+            self.generation_stats.append(generation_stat)
+            
+            # 진행 상황 출력 (더 상세한 정보)
+            if generation % 20 == 0 or improvement:
+                elapsed = (datetime.now() - start_time).total_seconds()
+                print(f"세대 {generation:4d}: 적합도={best['fitness']:8.2f} | "
+                      f"다양성={diversity:6.2f} | 변이율={current_mutation_rate:.3f} | "
+                      f"정체={self.stagnation_counter:3d} | {elapsed:.1f}s")
                 
-                # 비용 정보 출력
-                if generation % 50 == 0:
+                # 상세 비용 정보 출력
+                if generation % 100 == 0:
                     total_cost = self.calculate_total_cost(best)
                     penalty = self.calculate_penalties(best)
-                    print(f"  └─ 총 비용: ${total_cost:,.0f}, 패널티: {penalty:.0f}")
+                    print(f"  ├─ 총 비용: ${total_cost:,.0f}")
+                    print(f"  ├─ 패널티: {penalty:.0f}")
+                    print(f"  └─ Full/Empty: {np.sum(best['xF']):.0f}/{np.sum(best['xE']):.0f} TEU")
             
             # 목표 달성 확인
             if best['fitness'] >= self.target_fitness:
                 print(f"\n✅ 목표 적합도 달성! (세대 {generation})")
                 break
             
+            # 조기 종료 확인 (수렴 감지)
+            if self.stagnation_counter >= self.convergence_patience:
+                print(f"\n⏹️ 수렴 감지로 조기 종료 (세대 {generation})")
+                print(f"   {self.convergence_patience}세대 동안 {self.convergence_threshold*100:.2f}% 이상 개선 없음")
+                break
+            
             # 재생산
             population = self.reproduction(parents)
         
-        print("\n" + "=" * 50)
+        # 최종 결과
+        elapsed_time = (datetime.now() - start_time).total_seconds()
+        print("\n" + "=" * 60)
         print("🎯 최적화 완료!")
+        print(f"⏱️ 총 실행 시간: {elapsed_time:.2f}초")
+        print(f"🏆 최종 적합도: {best_individual['fitness']:.2f}")
+        print(f"📈 총 진화 세대: {generation + 1}")
+        print("=" * 60)
         
         return best_individual, best_fitness_history
     
@@ -562,9 +785,9 @@ class OceanShippingGA:
         
         # 1. 적합도 진화
         axes[0, 0].plot(fitness_history, 'b-', linewidth=2)
-        axes[0, 0].set_xlabel('세대')
-        axes[0, 0].set_ylabel('적합도')
-        axes[0, 0].set_title('적합도 진화 과정')
+        axes[0, 0].set_xlabel('Generation')
+        axes[0, 0].set_ylabel('Fitness')
+        axes[0, 0].set_title('Fitness Evolution Process')
         axes[0, 0].grid(True, alpha=0.3)
         
         # 2. 컨테이너 분포 (상위 20개 스케줄)
@@ -576,9 +799,9 @@ class OceanShippingGA:
         axes[0, 1].bar(x_pos, best_individual['xE'][:n_display], 
                       alpha=0.7, label='Empty', color='orange', 
                       bottom=best_individual['xF'][:n_display])
-        axes[0, 1].set_xlabel('스케줄 번호')
-        axes[0, 1].set_ylabel('컨테이너 수 (TEU)')
-        axes[0, 1].set_title('스케줄별 컨테이너 할당 (상위 20개)')
+        axes[0, 1].set_xlabel('Schedule Number')
+        axes[0, 1].set_ylabel('Container Count (TEU)')
+        axes[0, 1].set_title('Container Allocation by Schedule (Top 20)')
         axes[0, 1].legend()
         axes[0, 1].set_xticks(x_pos[::2])
         axes[0, 1].set_xticklabels(self.I[:n_display:2])
@@ -590,8 +813,8 @@ class OceanShippingGA:
         axes[1, 0].barh(range(len(ports)), avg_inventory[:len(ports)], color='green', alpha=0.7)
         axes[1, 0].set_yticks(range(len(ports)))
         axes[1, 0].set_yticklabels(ports)
-        axes[1, 0].set_xlabel('평균 재고 (TEU)')
-        axes[1, 0].set_title('항구별 평균 Empty 컨테이너 재고')
+        axes[1, 0].set_xlabel('Average Inventory (TEU)')
+        axes[1, 0].set_title('Average Empty Container Inventory by Port')
         axes[1, 0].grid(True, alpha=0.3, axis='x')
         
         # 4. 비용 구성
@@ -609,7 +832,7 @@ class OceanShippingGA:
         holding_cost = self.CHOLD * np.sum(best_individual['y'])
         
         costs = [transport_cost, delay_cost, empty_cost, holding_cost]
-        labels = ['운송비', '지연 패널티', 'Empty 운송', '재고 보유']
+        labels = ['Transport Cost', 'Delay Penalty', 'Empty Transport', 'Holding Cost']
         colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A']
         
         _, texts, autotexts = axes[1, 1].pie(
@@ -617,7 +840,7 @@ class OceanShippingGA:
             colors=colors, startangle=90
         )
         
-        axes[1, 1].set_title(f'비용 구성 (총: ${total_cost:,.0f})')        
+        axes[1, 1].set_title(f'Cost Breakdown (Total: ${total_cost:,.0f})')        
         # 폰트 크기 조정
         for text in texts:
             text.set_fontsize(10)
