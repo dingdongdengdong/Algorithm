@@ -19,7 +19,7 @@ class OceanShippingGA:
     - 다양한 제약 조건 고려 (수요, 용량, 지연 등)
     - 운송비, 연료비, 지연 패널티, 재고비 등 총 비용 최소화
     """
-    def __init__(self, file_paths):
+    def __init__(self, file_paths, version='default'):
         """
         해상 운송 최적화 GA 초기화
         
@@ -31,6 +31,8 @@ class OceanShippingGA:
             - 'delayed': 딜레이 스케줄 데이터 파일 경로
             - 'vessel': 선박 데이터 파일 경로
             - 'port': 항구 데이터 파일 경로
+        version : str
+            실행 버전 ('quick', 'medium', 'standard', 'full', 'default')
         """
         # 데이터 로드
         self.load_data(file_paths)
@@ -38,8 +40,8 @@ class OceanShippingGA:
         # 파라미터 초기화
         self.setup_parameters()
         
-        # GA 파라미터 설정
-        self.setup_ga_parameters()
+        # GA 파라미터 설정 (버전별)
+        self.setup_ga_parameters(version)
         
     def load_data(self, file_paths):
         """
@@ -234,19 +236,65 @@ class OceanShippingGA:
             if port in self.P:
                 self.I0_p[port] = inventory
                 
-    def setup_ga_parameters(self):
-        """GA 파라미터 설정 """
+    def setup_ga_parameters(self, version='default'):
+        """GA 파라미터 설정 - 버전별 설정 지원"""
         
-        self.population_size = 1000     # 100 -> 1000으로 대폭 증가
-        self.num_elite = 200            # 20% 엘리트 유지
+        # 버전별 파라미터 설정
+        version_configs = {
+            'quick': {  # 20세대 빠른 테스트
+                'population_size': 50,
+                'max_generations': 20,
+                'num_elite': 10,
+                'convergence_patience': 10,
+                'description': '빠른 테스트 (20세대)'
+            },
+            'medium': {  # 50세대 중간 테스트
+                'population_size': 100,
+                'max_generations': 50,
+                'num_elite': 20,
+                'convergence_patience': 25,
+                'description': '중간 테스트 (50세대)'
+            },
+            'standard': {  # 100세대 표준
+                'population_size': 200,
+                'max_generations': 100,
+                'num_elite': 40,
+                'convergence_patience': 50,
+                'description': '표준 실행 (100세대)'
+            },
+            'full': {  # 전체 실행
+                'population_size': 1000,
+                'max_generations': 2000,
+                'num_elite': 200,
+                'convergence_patience': 200,
+                'description': '전체 실행 (2000세대)'
+            },
+            'default': {  # 기본값
+                'population_size': 100,
+                'max_generations': 100,
+                'num_elite': 20,
+                'convergence_patience': 50,
+                'description': '기본 설정 (100세대)'
+            }
+        }
+        
+        # 선택된 버전의 설정 적용
+        config = version_configs.get(version, version_configs['default'])
+        
+        self.version = version
+        self.version_description = config['description']
+        self.population_size = config['population_size']
+        self.num_elite = config['num_elite']
+        self.max_generations = config['max_generations']
+        self.convergence_patience = config['convergence_patience']
+        
+        # 공통 파라미터
         self.p_crossover = 0.85         # 높은 교차율로 다양성 증가
-        self.p_mutation = 0.15          # 낮은 돌연변이율로 안정성 확보
-        self.max_generations = 2000     # 충분한 진화 세대 수
+        self.p_mutation = 0.25          # 높은 돌연변이율로 다양성 확보
         self.target_fitness = -3000     # 더 엄격한 목표
         
         # 수렴 감지 및 조기 종료 파라미터
         self.convergence_threshold = 0.0005  # 0.05% 개선
-        self.convergence_patience = 100      # 100세대 동안 개선 없으면 조기 종료
         self.stagnation_counter = 0
         
         # 성능 추적 파라미터
@@ -280,19 +328,22 @@ class OceanShippingGA:
                 if not route_data.empty:
                     r = route_data['루트번호'].iloc[0]
                     
-                    # Full container 초기화 (수요 기반)
+                    # Full container 초기화 (LP 모델: 수요와 정확히 일치)
                     if r in self.D_ab:
                         demand = self.D_ab[r]
-                        individual['xF'][idx] = max(0, demand + np.random.randn() * 5)
+                        # 초기값은 수요에 가깝게 설정 (약간의 노이즈 추가)
+                        individual['xF'][idx] = max(0, demand + np.random.randn() * 0.5)
                     else:
-                        individual['xF'][idx] = max(0, np.random.uniform(1, 50))
+                        individual['xF'][idx] = max(0, np.random.uniform(1, 10))
                     
-                    # Empty container 초기화
+                    # Empty container 초기화 (LP 모델: θ * CAP_r)
                     if r in self.CAP_v_r:
                         capacity = self.CAP_v_r[r]
-                        individual['xE'][idx] = max(0, self.theta * capacity + np.random.randn() * 2)
+                        expected_empty = self.theta * capacity
+                        # 초기값은 예상값에 가깝게 설정
+                        individual['xE'][idx] = max(0, expected_empty + np.random.randn() * 0.5)
                     else:
-                        individual['xE'][idx] = max(0, np.random.uniform(1, 10))
+                        individual['xE'][idx] = max(0, np.random.uniform(1, 5))
             
             # 재고 초기화
             for i_idx in range(self.num_schedules):
@@ -304,52 +355,28 @@ class OceanShippingGA:
         return population
     
     def calculate_fitness(self, individual):
-        """개선된 적합도 계산 - 더 정교한 비용 모델링"""
+        """LP 모델 기반 적합도 계산"""
         total_cost = 0
-        penalty = 0
         
-        # 1. 운송 비용 (거리 기반 가중치 적용)
+        # LP 목적함수: minimize Σ(CSHIP*(xF+xE) + CBAF*(xF+xE) + CETA*DELAY*xF) + CHOLD*y
         for idx, i in enumerate(self.I):
-            # Full container 비용
-            base_cost = self.CSHIP + self.CBAF
-            delay_penalty = self.CETA * self.DELAY_i.get(i, 0)
+            # 1. 운송비 + 유류할증료 (Full + Empty)
+            transport_cost = (self.CSHIP + self.CBAF) * (individual['xF'][idx] + individual['xE'][idx])
             
-            # 용량 활용률에 따른 효율성 보너스
-            route_data = self.schedule_data[self.schedule_data['스케줄 번호'] == i]
-            if not route_data.empty:
-                r = route_data['루트번호'].iloc[0]
-                if r in self.CAP_v_r:
-                    capacity = self.CAP_v_r[r]
-                    utilization = (individual['xF'][idx] + individual['xE'][idx]) / capacity
-                    efficiency_factor = 1.0 + 0.2 * min(utilization, 1.0)  # 최대 20% 보너스
-                else:
-                    efficiency_factor = 1.0
-            else:
-                efficiency_factor = 1.0
+            # 2. ETA 패널티 (Full 컨테이너만, PDF 명시)
+            eta_penalty = self.CETA * self.DELAY_i.get(i, 0) * individual['xF'][idx]
             
-            total_cost += (base_cost + delay_penalty) * individual['xF'][idx] * efficiency_factor
-            
-            # Empty container 비용 (재배치 비용 포함)
-            empty_cost = self.CEMPTY_SHIP * individual['xE'][idx]
-            total_cost += empty_cost
+            total_cost += transport_cost + eta_penalty
         
-        # 2. 재고 보유 비용 (비선형 모델)
-        inventory_cost = 0
-        for p_idx in range(self.num_ports):
-            port_inventory = np.sum(individual['y'][:, p_idx])
-            # 재고가 많을수록 비선형적으로 비용 증가
-            if port_inventory > 0:
-                inventory_cost += self.CHOLD * port_inventory * (1 + 0.001 * port_inventory)
+        # 3. 재고 보유 비용 (LP 모델에 명시)
+        inventory_cost = self.CHOLD * np.sum(individual['y'])
         total_cost += inventory_cost
         
-        # 3. 제약 조건 패널티 (계층적 패널티)
+        # 4. 제약 조건 패널티
         penalty = self.calculate_enhanced_penalties(individual)
         
-        # 4. 서비스 품질 보너스 (수요 초과 충족시)
-        service_bonus = self.calculate_service_bonus(individual)
-        
-        # 적합도 = -(비용 + 패널티) + 서비스 보너스
-        fitness = -(total_cost + penalty) + service_bonus
+        # 적합도 = -(총 비용 + 패널티)
+        fitness = -(total_cost + penalty)
         individual['fitness'] = fitness
         
         return fitness
@@ -419,10 +446,10 @@ class OceanShippingGA:
                         total_full += individual['xF'][idx]
                 
                 demand = self.D_ab[r]
-                if total_full < demand:
-                    shortage = demand - total_full
-                    # 비선형 패널티: 부족량의 제곱에 비례
-                    demand_penalty += shortage * shortage * 1000
+                # LP 모델: xF_r = D_ab (정확히 일치해야 함)
+                if abs(total_full - demand) > 0.1:  # 허용 오차 0.1 TEU
+                    diff = abs(total_full - demand)
+                    demand_penalty += diff * 500  # 강한 패널티
         
         # 2. 용량 제약 (중간 우선순위)
         capacity_penalty = 0
@@ -441,38 +468,57 @@ class OceanShippingGA:
                 capacity = self.CAP_v_r[r]
                 if total_containers > capacity:
                     excess = total_containers - capacity
-                    # 초과량에 따른 지수적 패널티
-                    capacity_penalty += excess * excess * 500
+                    # 적당한 초과 패널티
+                    capacity_penalty += excess * 200
         
-        # 3. 비음 제약 (기본 제약)
+        # 3. 비음 제약 (기본 제약) - 패널티 완화
         non_negative_penalty = 0
-        non_negative_penalty += np.sum(np.abs(individual['xF'][individual['xF'] < 0])) * 10000
-        non_negative_penalty += np.sum(np.abs(individual['xE'][individual['xE'] < 0])) * 10000
-        non_negative_penalty += np.sum(np.abs(individual['y'][individual['y'] < 0])) * 10000
+        non_negative_penalty += np.sum(np.abs(individual['xF'][individual['xF'] < 0])) * 1000
+        non_negative_penalty += np.sum(np.abs(individual['xE'][individual['xE'] < 0])) * 1000
+        non_negative_penalty += np.sum(np.abs(individual['y'][individual['y'] < 0])) * 1000
         
-        # 4. 빈 컨테이너 최소 비율 제약
-        empty_ratio_penalty = 0
+        # 4. 빈 컨테이너 제약 (LP 모델: xE_i = θ * CAP_r)
+        empty_constraint_penalty = 0
         for r in self.R:
             if r in self.CAP_v_r:
                 route_schedules = self.schedule_data[
                     self.schedule_data['루트번호'] == r
                 ]['스케줄 번호'].unique()
                 
-                total_empty = 0
-                total_capacity = 0
+                expected_empty = self.theta * self.CAP_v_r[r]
+                
                 for i in route_schedules:
                     if i in self.I:
                         idx = self.I.index(i)
-                        total_empty += individual['xE'][idx]
-                        total_capacity += self.CAP_v_r[r]
-                
-                if total_capacity > 0:
-                    empty_ratio = total_empty / total_capacity
-                    if empty_ratio < self.theta:
-                        shortage = self.theta - empty_ratio
-                        empty_ratio_penalty += shortage * total_capacity * 100
+                        actual_empty = individual['xE'][idx]
+                        
+                        # LP 모델: xE_i = θ * CAP_r (정확히 일치)
+                        if abs(actual_empty - expected_empty) > 0.1:  # 허용 오차
+                            diff = abs(actual_empty - expected_empty)
+                            empty_constraint_penalty += diff * 200
         
-        penalty = demand_penalty + capacity_penalty + non_negative_penalty + empty_ratio_penalty
+        # 5. 빈 컨테이너 과다 비율 패널티 (Full 컨테이너 대비 150% 초과시)
+        empty_excess_penalty = 0
+        for r in self.R:
+            route_schedules = self.schedule_data[
+                self.schedule_data['루트번호'] == r
+            ]['스케줄 번호'].unique()
+            
+            total_full = 0
+            total_empty = 0
+            for i in route_schedules:
+                if i in self.I:
+                    idx = self.I.index(i)
+                    total_full += individual['xF'][idx]
+                    total_empty += individual['xE'][idx]
+            
+            if total_full > 0:
+                empty_to_full_ratio = total_empty / total_full
+                if empty_to_full_ratio > 1.5:  # 150% 초과시 패널티
+                    excess_ratio = empty_to_full_ratio - 1.5
+                    empty_excess_penalty += excess_ratio * total_full * 50  # 적당한 패널티
+        
+        penalty = demand_penalty + capacity_penalty + non_negative_penalty + empty_constraint_penalty + empty_excess_penalty
         return penalty
     
     def calculate_service_bonus(self, individual):
@@ -554,22 +600,62 @@ class OceanShippingGA:
             return copy.deepcopy(parent1), copy.deepcopy(parent2)
     
     def mutation(self, individual):
-        """돌연변이 연산"""
+        """개선된 돌연변이 연산 - 더 효과적인 변이"""
+        mutated = False
+        
+        # xF 돌연변이 (더 높은 확률과 적응적 강도)
+        for idx in range(self.num_schedules):
+            if np.random.rand() < self.p_mutation * 0.5:  # 50% 확률
+                # 현재 값에 기반한 적응적 변이
+                current_val = individual['xF'][idx]
+                mutation_strength = max(1, current_val * 0.2)  # 20% 변동
+                individual['xF'][idx] = max(0, current_val + np.random.randn() * mutation_strength)
+                mutated = True
+        
+        # xE 돌연변이 (더 강한 변이)
+        for idx in range(self.num_schedules):
+            if np.random.rand() < self.p_mutation * 0.5:  # 50% 확률
+                current_val = individual['xE'][idx]
+                mutation_strength = max(1, current_val * 0.3)  # 30% 변동
+                individual['xE'][idx] = max(0, current_val + np.random.randn() * mutation_strength)
+                mutated = True
+        
+        # y 돌연변이 (재고 변이)
         if np.random.rand() < self.p_mutation:
-            # xF 돌연변이
-            for idx in range(self.num_schedules):
-                if np.random.rand() < 0.1:
-                    individual['xF'][idx] = max(0, individual['xF'][idx] + np.random.randn() * 5)
+            mask = np.random.rand(self.num_schedules, self.num_ports) < 0.2  # 20% 확률
+            if np.sum(mask) > 0:
+                individual['y'][mask] += np.random.randn(np.sum(mask)) * 50
+                individual['y'] = np.maximum(0, individual['y'])
+                mutated = True
+        
+        # 큰 변이 (5% 확률로 전체 재초기화)
+        if np.random.rand() < 0.05:
+            # 일부 스케줄을 완전히 재초기화
+            num_reset = max(1, int(self.num_schedules * 0.1))  # 10% 스케줄 재설정
+            reset_indices = np.random.choice(self.num_schedules, num_reset, replace=False)
             
-            # xE 돌연변이
-            for idx in range(self.num_schedules):
-                if np.random.rand() < 0.1:
-                    individual['xE'][idx] = max(0, individual['xE'][idx] + np.random.randn() * 2)
+            for idx in reset_indices:
+                i = self.I[idx]
+                route_data = self.schedule_data[self.schedule_data['스케줄 번호'] == i]
+                
+                if not route_data.empty:
+                    r = route_data['루트번호'].iloc[0]
+                    
+                    # Full container 재초기화
+                    if r in self.D_ab:
+                        demand = self.D_ab[r]
+                        individual['xF'][idx] = max(0, demand + np.random.randn() * 3)
+                    
+                    # Empty container 재초기화
+                    if r in self.CAP_v_r:
+                        capacity = self.CAP_v_r[r]
+                        individual['xE'][idx] = max(0, self.theta * capacity + np.random.randn() * 1)
             
-            # y 돌연변이
-            mask = np.random.rand(self.num_schedules, self.num_ports) < 0.05
-            individual['y'][mask] += np.random.randn(np.sum(mask)) * 10
-            individual['y'] = np.maximum(0, individual['y'])
+            mutated = True
+        
+        # 적합도 무효화 (변이된 경우만)
+        if mutated:
+            individual['fitness'] = float('-inf')
         
         return individual
     
@@ -619,10 +705,20 @@ class OceanShippingGA:
         if not self.use_adaptive_mutation:
             return self.p_mutation
         
-        # 다양성이 낮으면 돌연변이율 증가
+        # 다양성이 낮으면 돌연변이율 증가 (개선된 공식)
         base_rate = self.p_mutation
-        diversity_factor = max(0.5, min(2.0, 1.0 / (diversity + 0.01)))
-        generation_factor = 1.0 + 0.5 * (generation / self.max_generations)
+        
+        # 다양성 정규화 (0-100 범위로 가정)
+        normalized_diversity = min(diversity / 100.0, 1.0)
+        
+        # 다양성이 낮을 때 돌연변이율 증가
+        if normalized_diversity < 0.3:  # 낮은 다양성
+            diversity_factor = 1.5 + (0.3 - normalized_diversity) * 2.0
+        else:  # 적당한 다양성 유지
+            diversity_factor = 1.0
+        
+        # 세대 진행에 따른 조정
+        generation_factor = 1.0 + 0.3 * (generation / self.max_generations)
         
         return min(0.5, base_rate * diversity_factor * generation_factor)
 
@@ -630,8 +726,10 @@ class OceanShippingGA:
         """GA 실행 - M1 최적화된 고성능 버전"""
         print("\n🧬 유전 알고리즘 시작 (M1 Mac 최적화)")
         print("=" * 60)
+        print(f"🏷️ 실행 버전: {self.version_description}")
         print(f"📊 설정: Population={self.population_size}, Generations={self.max_generations}")
         print(f"🎯 목표: 적합도 >= {self.target_fitness}")
+        print(f"⏰ 수렴 대기: {self.convergence_patience}세대")
         print("=" * 60)
         
         # 초기화
@@ -855,7 +953,7 @@ class OceanShippingGA:
         return fig
 
 # 메인 실행 함수
-def run_ocean_shipping_ga(file_paths):
+def run_ocean_shipping_ga(file_paths, version='default', show_plot=True):
     """
     해상 운송 GA 최적화 실행
     
@@ -863,6 +961,10 @@ def run_ocean_shipping_ga(file_paths):
     -----------
     file_paths : dict
         데이터 파일 경로 딕셔너리
+    version : str
+        실행 버전 ('quick', 'medium', 'standard', 'full', 'default')
+    show_plot : bool
+        시각화 표시 여부
     
     Returns:
     --------
@@ -871,8 +973,8 @@ def run_ocean_shipping_ga(file_paths):
     fitness_history : list
         적합도 변화 이력
     """
-    # GA 인스턴스 생성
-    ga = OceanShippingGA(file_paths)
+    # GA 인스턴스 생성 (버전 포함)
+    ga = OceanShippingGA(file_paths, version)
     
     # 최적화 실행
     best_solution, fitness_history = ga.run()
@@ -880,14 +982,71 @@ def run_ocean_shipping_ga(file_paths):
     # 결과 출력
     ga.print_solution(best_solution)
     
-    # 시각화
-    ga.visualize_results(best_solution, fitness_history)
+    # 시각화 (옵션)
+    if show_plot:
+        ga.visualize_results(best_solution, fitness_history)
     
     return best_solution, fitness_history
 
-# 사용 예제
+# 명령행 인자 처리 및 메인 실행
 if __name__ == "__main__":
     import os
+    import sys
+    import argparse
+    
+    # 명령행 인자 파서 설정
+    parser = argparse.ArgumentParser(
+        description='해상 운송 최적화 유전 알고리즘',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+사용 예제:
+  python GA_container.py --version quick     # 20세대 빠른 테스트
+  python GA_container.py --version medium    # 50세대 중간 테스트  
+  python GA_container.py --version standard  # 100세대 표준 실행
+  python GA_container.py --version full      # 2000세대 전체 실행
+  python GA_container.py                     # 기본 설정 (100세대)
+
+버전별 설정:
+  quick    : 인구 50,  최대 20세대   (빠른 테스트용)
+  medium   : 인구 100, 최대 50세대   (중간 테스트용)
+  standard : 인구 200, 최대 100세대  (표준 실행)
+  full     : 인구 1000, 최대 2000세대 (완전 실행)
+        """
+    )
+    
+    parser.add_argument(
+        '--version', 
+        choices=['quick', 'medium', 'standard', 'full', 'default'],
+        default='default',
+        help='실행 버전 선택 (기본값: default)'
+    )
+    
+    parser.add_argument(
+        '--seed',
+        type=int,
+        default=42,
+        help='랜덤 시드 (기본값: 42)'
+    )
+    
+    parser.add_argument(
+        '--no-plot',
+        action='store_true',
+        help='시각화 비활성화 (속도 향상)'
+    )
+    
+    args = parser.parse_args()
+    
+    # 버전 정보 출력
+    version_info = {
+        'quick': '빠른 테스트 (20세대)',
+        'medium': '중간 테스트 (50세대)',
+        'standard': '표준 실행 (100세대)', 
+        'full': '전체 실행 (2000세대)',
+        'default': '기본 설정 (100세대)'
+    }
+    
+    print(f"\n🚀 해상 운송 GA 최적화 시작")
+    print(f"📋 선택된 버전: {args.version} - {version_info[args.version]}")
     
     # 파일 경로 설정 (절대 경로 사용)
     base_path = '/Users/dong/Downloads/ocean'
@@ -907,10 +1066,13 @@ if __name__ == "__main__":
     
     if all_files_exist:
         # 랜덤 시드 설정 (재현가능한 결과를 위해)
-        np.random.seed(42)
+        np.random.seed(args.seed)
+        print(f"🌱 랜덤 시드: {args.seed}")
         
-        # GA 실행
-        best_solution, fitness_history = run_ocean_shipping_ga(file_paths)
+        # GA 실행 (버전 및 시각화 옵션 포함)
+        best_solution, fitness_history = run_ocean_shipping_ga(
+            file_paths, args.version, show_plot=not args.no_plot
+        )
         
         # 추가 분석 (선택사항)
         print("\n" + "=" * 60)
