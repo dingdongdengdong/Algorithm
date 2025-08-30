@@ -1,0 +1,173 @@
+@startuml Ocean Shipping GA Software Composition
+
+!theme carbon-gray
+skinparam {
+    backgroundColor #f8f9fa
+    componentStyle rectangle
+    packageStyle rectangle
+    shadowing false
+    roundCorner 15
+    
+    package {
+        BackgroundColor #e3f2fd
+        BorderColor #1976d2
+        FontColor #1976d2
+        FontStyle bold
+        FontSize 12
+    }
+    
+    component {
+        BackgroundColor #fff3e0
+        BorderColor #f57c00
+        FontColor #e65100
+        FontStyle bold
+        FontSize 11
+    }
+    
+    database {
+        BackgroundColor #f3e5f5
+        BorderColor #7b1fa2
+        FontColor #4a148c
+        FontStyle bold
+    }
+    
+    artifact {
+        BackgroundColor #e8f5e8
+        BorderColor #388e3c
+        FontColor #1b5e20
+        FontSize 10
+    }
+    
+    note {
+        BackgroundColor #fff8e1
+        BorderColor #ffa000
+        FontColor #e65100
+        FontSize 10
+    }
+    
+    arrow {
+        Color #424242
+        Thickness 2
+    }
+}
+
+title <size:18><b>🚢 Ocean Shipping GA - Software Architecture</b></size>
+
+package "🏗️ Ocean Shipping GA System" as system {
+    
+    package "🚀 Entry Point" as entry #lightblue {
+        component [<b>Runner</b>\n<i>Main Execution</i>] as runner
+    }
+    
+    package "⚙️ Core Models" as core #lightcyan {
+        component [<b>GA Optimizer</b>\n<i>Main Controller</i>] as ga_opt
+        component [<b>Individual</b>\n<i>Solution Entity</i>] as individual
+        component [<b>Parameters</b>\n<i>Configuration</i>] as params
+    }
+    
+    package "📊 Data Layer" as data #lightyellow {
+        component [<b>Data Loader</b>\n<i>Excel Parser</i>] as data_loader
+        
+        database "📁 Excel Data Sources" as excel {
+            artifact "📋 Schedule Data" as schedule
+            artifact "⏰ Delayed Schedule" as delayed
+            artifact "🚢 Vessel Data" as vessel
+            artifact "🏪 Port Data" as port
+        }
+    }
+    
+    package "🧬 Genetic Algorithm Engine" as genetic #lightgreen {
+        component [<b>Fitness Calculator</b>\n<i>LP Model Evaluator</i>] as fitness
+        component [<b>Genetic Operators</b>\n<i>Evolution Engine</i>] as genetic_ops
+        component [<b>Population Manager</b>\n<i>Generation Control</i>] as population
+    }
+    
+    package "📈 Visualization" as viz #lavender {
+        component [<b>Result Plotter</b>\n<i>Charts & Analytics</i>] as plotter
+    }
+}
+
+' Main workflow arrows
+runner -down-> ga_opt : <b>initialize & execute</b>
+ga_opt -down-> data_loader : <b>load datasets</b>
+ga_opt -right-> params : <b>configure</b>
+ga_opt -down-> fitness : <b>evaluate solutions</b>
+ga_opt -down-> genetic_ops : <b>evolve population</b>
+ga_opt -down-> population : <b>manage generations</b>
+ga_opt -right-> plotter : <b>visualize results</b>
+
+' Data flow
+data_loader -up-> excel : <b>reads from</b>
+excel ..> data_loader : <color:#666><i>raw data</i></color>
+
+' Component interactions
+fitness -up-> params : <color:#666><i>uses config</i></color>
+genetic_ops -up-> params : <color:#666><i>uses parameters</i></color>
+genetic_ops -right-> fitness : <color:#666><i>fitness evaluation</i></color>
+population -up-> params : <color:#666><i>population settings</i></color>
+
+ga_opt -down-> individual : <b>manages entities</b>
+genetic_ops -up-> individual : <color:#666><i>creates/modifies</i></color>
+population -left-> individual : <color:#666><i>initializes</i></color>
+
+' Data transformation flow
+data_loader ..> params : <color:#0066cc><i>processed data</i></color>
+params ..> fitness : <color:#0066cc><i>LP model params</i></color>
+params ..> genetic_ops : <color:#0066cc><i>GA settings</i></color>
+params ..> population : <color:#0066cc><i>population config</i></color>
+
+' Enhanced notes with icons
+note right of ga_opt
+  <b>🎯 Central Orchestrator</b>
+  ─────────────────────
+  • Coordinates all components
+  • Manages optimization workflow  
+  • Controls GA lifecycle
+  • Handles convergence detection
+end note
+
+note bottom of fitness
+  <b>🔢 Fitness Evaluation</b>
+  ─────────────────────
+  • LP model implementation
+  • Constraint handling
+  • Penalty calculations
+  • Multi-objective optimization
+end note
+
+note bottom of genetic_ops
+  <b>🧬 Evolution Operations</b>
+  ─────────────────────
+  • Tournament selection
+  • Crossover & mutation
+  • Adaptive parameters
+  • Diversity maintenance
+end note
+
+note bottom of data_loader
+  <b>📥 Data Processing</b>
+  ─────────────────────
+  • Excel file parsing
+  • Korean text handling
+  • Data validation
+  • Format standardization
+end note
+
+note right of population
+  <b>👥 Population Control</b>
+  ─────────────────────
+  • Generation management
+  • Diversity calculation
+  • Elite preservation
+  • Size optimization
+end note
+
+legend bottom right
+  <b>Legend</b>
+  ────────────
+  <b>Solid arrows:</b> Direct dependencies
+  <b>Dotted arrows:</b> Data flow
+  <b>Colors:</b> Component categories
+end legend
+
+@enduml

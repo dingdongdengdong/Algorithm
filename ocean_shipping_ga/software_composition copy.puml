@@ -1,0 +1,97 @@
+@startuml Ocean Shipping GA Software Composition
+
+!theme plain
+skinparam backgroundColor white
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+skinparam arrow {
+    Color black
+}
+
+title Ocean Shipping Genetic Algorithm - Software Architecture
+
+package "Ocean Shipping GA System" {
+    
+    package "Entry Point" {
+        [Runner] as runner
+    }
+    
+    package "Core Models" {
+        [GA Optimizer] as ga_opt
+        [Individual] as individual
+        [Parameters] as params
+    }
+    
+    package "Data Layer" {
+        [Data Loader] as data_loader
+        database "Excel Files" as excel {
+            artifact "Schedule Data" as schedule
+            artifact "Delayed Schedule Data" as delayed
+            artifact "Vessel Data" as vessel
+            artifact "Port Data" as port
+        }
+    }
+    
+    package "Genetic Algorithm Components" {
+        [Fitness Calculator] as fitness
+        [Genetic Operators] as genetic_ops
+        [Population Manager] as population
+    }
+    
+    package "Visualization" {
+        [Result Plotter] as plotter
+    }
+}
+
+' Relationships
+runner --> ga_opt : creates and runs
+ga_opt --> data_loader : loads data
+ga_opt --> params : configuration
+ga_opt --> fitness : fitness evaluation
+ga_opt --> genetic_ops : evolution operations
+ga_opt --> population : population management
+ga_opt --> plotter : visualization
+
+data_loader --> excel : reads from
+
+fitness --> params : uses parameters
+genetic_ops --> params : uses parameters
+genetic_ops --> fitness : fitness calculation
+population --> params : uses parameters
+
+ga_opt --> individual : manages individuals
+genetic_ops --> individual : creates/modifies
+population --> individual : initializes
+
+' Data flow
+excel ..> data_loader : Excel data
+data_loader ..> params : processed data
+params ..> fitness : LP model parameters
+params ..> genetic_ops : GA parameters
+params ..> population : population settings
+
+note right of ga_opt
+  Main orchestrator that coordinates
+  all components for the genetic
+  algorithm optimization process
+end note
+
+note bottom of fitness
+  Implements LP model-based
+  fitness calculation with
+  constraints and penalties
+end note
+
+note bottom of genetic_ops
+  Handles selection, crossover,
+  mutation, and reproduction
+  operations
+end note
+
+note bottom of data_loader
+  Loads and preprocesses
+  Korean Excel files with
+  shipping data
+end note
+
+@enduml
