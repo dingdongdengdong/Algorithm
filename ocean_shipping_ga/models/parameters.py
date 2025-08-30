@@ -78,11 +78,13 @@ class GAParameters:
         self.CEMPTY_SHIP = self.CSHIP + self.CBAF  # 빈 컨테이너 운송 총비용
         
     def setup_sets(self):
-        """집합(Sets) 정의"""
+        """집합(Sets) 정의 - 시간적 복잡성 반영"""
         self.P = self.port_data['항구명'].unique().tolist()        # 모든 항구들의 집합
-        self.I = self.schedule_data['스케줄 번호'].unique().tolist()  # 모든 스케줄들의 집합
         self.R = self.schedule_data['루트번호'].unique().tolist()    # 모든 루트들의 집합
         self.V = self.vessel_data['선박명'].unique().tolist()       # 모든 선박들의 집합
+        
+        # 시간 기반 스케줄 정렬 및 집합 설정
+        self._setup_time_based_schedules()
         
         self.num_schedules = len(self.I)
         self.num_ports = len(self.P)
@@ -92,6 +94,166 @@ class GAParameters:
         print(f"  - 항구 수: {self.num_ports}")
         print(f"  - 루트 수: {len(self.R)}")
         print(f"  - 선박 수: {len(self.V)}")
+        print(f"  - 시간 범위: {self.time_horizon_start} ~ {self.time_horizon_end}")
+        
+    def _setup_time_based_schedules(self):
+        """시간 기반 스케줄 정렬 및 시간적 복잡성 설정"""
+        # ETD 시간으로 스케줄 정렬
+        sorted_schedules = self.schedule_data.sort_values('ETD').reset_index(drop=True)
+        self.I = sorted_schedules['스케줄 번호'].tolist()  # 시간 순서대로 정렬된 스케줄
+        
+        # 시간 인덱스 매핑 (스케줄 번호 -> 시간 순서)
+        self.time_index_mapping = {schedule_id: idx for idx, schedule_id in enumerate(self.I)}
+        
+        # 시간 범위 설정
+        self.time_horizon_start = sorted_schedules['ETD'].min()
+        self.time_horizon_end = sorted_schedules['ETA'].max()
+        
+        # 스케줄별 시간 정보 저장
+        self.ETD_i = sorted_schedules.set_index('스케줄 번호')['ETD'].to_dict()
+        self.ETA_i = sorted_schedules.set_index('스케줄 번호')['ETA'].to_dict()
+        
+        # 시간별 스케줄 그룹화
+        self._setup_temporal_schedule_groups()
+        
+        # 선박별 스케줄 타임라인
+        self._setup_vessel_timeline()
+        
+        # 항구별 스케줄 타임라인
+        self._setup_port_timeline()
+        
+        print(f"✅ 시간 기반 스케줄 정렬 완료: {len(self.I)}개 스케줄")
+        
+    def _setup_temporal_schedule_groups(self):
+        """시간별 스케줄 그룹화"""
+        # 일별 스케줄 그룹
+        self.daily_schedules = {}
+        for i in self.I:
+            date_key = self.ETD_i[i].date()
+            if date_key not in self.daily_schedules:
+                self.daily_schedules[date_key] = []
+            self.daily_schedules[date_key].append(i)
+        
+        # 주별 스케줄 그룹
+        self.weekly_schedules = {}
+        for i in self.I:
+            week_key = self.ETD_i[i].isocalendar()[1]  # ISO 주차
+            if week_key not in self.weekly_schedules:
+                self.weekly_schedules[week_key] = []
+            self.weekly_schedules[week_key].append(i)
+        
+        # 월별 스케줄 그룹
+        self.monthly_schedules = {}
+        for i in self.I:
+            month_key = self.ETD_i[i].month
+            if month_key not in self.monthly_schedules:
+                self.monthly_schedules[month_key] = []
+            self.monthly_schedules[month_key].append(i)
+            
+    def _setup_vessel_timeline(self):
+        """선박별 스케줄 타임라인 설정"""
+        self.vessel_timeline = {}
+        
+        for vessel in self.V:
+            vessel_schedules = self.schedule_data[
+                self.schedule_data['선박명'] == vessel
+            ]['스케줄 번호'].tolist()
+            
+            # 시간 순서대로 정렬
+            vessel_schedules.sort(key=lambda x: self.ETD_i[x])
+            
+            # 선박별 스케줄 간격 및 재사용 가능성 분석
+            self.vessel_timeline[vessel] = {
+                'schedules': vessel_schedules,
+                'schedule_gaps': self._calculate_schedule_gaps(vessel_schedules),
+                'reuse_possibility': self._analyze_vessel_reuse(vessel_schedules)
+            }
+            
+    def _setup_port_timeline(self):
+        """항구별 스케줄 타임라인 설정"""
+        self.port_timeline = {}
+        
+        for port in self.P:
+            # 출발 항구인 스케줄
+            departure_schedules = self.schedule_data[
+                self.schedule_data['출발항'] == port
+            ]['스케줄 번호'].tolist()
+            
+            # 도착 항구인 스케줄
+            arrival_schedules = self.schedule_data[
+                self.schedule_data['도착항'] == port
+            ]['스케줄 번호'].tolist()
+            
+            # 시간 순서대로 정렬
+            departure_schedules.sort(key=lambda x: self.ETD_i[x])
+            arrival_schedules.sort(key=lambda x: self.ETA_i[x])
+            
+            self.port_timeline[port] = {
+                'departures': departure_schedules,
+                'arrivals': arrival_schedules,
+                'capacity_analysis': self._analyze_port_capacity(port, departure_schedules, arrival_schedules)
+            }
+            
+    def _calculate_schedule_gaps(self, vessel_schedules):
+        """선박 스케줄 간격 계산"""
+        gaps = []
+        for i in range(len(vessel_schedules) - 1):
+            current_schedule = vessel_schedules[i]
+            next_schedule = vessel_schedules[i + 1]
+            
+            # 현재 스케줄 도착 ~ 다음 스케줄 출발 간격
+            gap_days = (self.ETD_i[next_schedule] - self.ETA_i[current_schedule]).days
+            gaps.append({
+                'from_schedule': current_schedule,
+                'to_schedule': next_schedule,
+                'gap_days': gap_days,
+                'is_reusable': gap_days >= 1  # 1일 이상 간격이면 재사용 가능
+            })
+        return gaps
+        
+    def _analyze_vessel_reuse(self, vessel_schedules):
+        """선박 재사용 가능성 분석"""
+        if len(vessel_schedules) < 2:
+            return {'reusable': False, 'reuse_count': 0, 'avg_gap': 0}
+            
+        gaps = self._calculate_schedule_gaps(vessel_schedules)
+        reusable_gaps = [g for g in gaps if g['is_reusable']]
+        
+        return {
+            'reusable': len(reusable_gaps) > 0,
+            'reuse_count': len(reusable_gaps),
+            'avg_gap': np.mean([g['gap_days'] for g in reusable_gaps]) if reusable_gaps else 0
+        }
+        
+    def _analyze_port_capacity(self, port, departure_schedules, arrival_schedules):
+        """항구별 동시 처리 능력 분석"""
+        # 시간별 출발/도착 스케줄 수 계산
+        time_slots = {}
+        
+        # 출발 스케줄 처리
+        for schedule_id in departure_schedules:
+            date_key = self.ETD_i[schedule_id].date()
+            if date_key not in time_slots:
+                time_slots[date_key] = {'departures': 0, 'arrivals': 0}
+            time_slots[date_key]['departures'] += 1
+            
+        # 도착 스케줄 처리
+        for schedule_id in arrival_schedules:
+            date_key = self.ETA_i[schedule_id].date()
+            if date_key not in time_slots:
+                time_slots[date_key] = {'departures': 0, 'arrivals': 0}
+            time_slots[date_key]['arrivals'] += 1
+            
+        # 동시 처리 능력 분석
+        max_daily_operations = max(
+            [slot['departures'] + slot['arrivals'] for slot in time_slots.values()]
+        ) if time_slots else 0
+        
+        return {
+            'max_daily_operations': max_daily_operations,
+            'daily_breakdown': time_slots,
+            'capacity_utilization': max_daily_operations / 24 if max_daily_operations > 0 else 0  # 시간당 평균
+        }
         
     def setup_route_parameters(self):
         """루트 관련 파라미터 설정"""
@@ -245,7 +407,7 @@ class GAParameters:
         self.generation_stats = []
         self.diversity_history = []
         
-        # M1 최적화: 병렬 처리 및 벡터화 강화
+        # 성능 최적화: 병렬 처리 및 벡터화 강화
         self.use_adaptive_mutation = True
     
     def calculate_empty_container_levels(self, individual: Dict[str, Any]) -> np.ndarray:
@@ -316,3 +478,128 @@ class GAParameters:
         self.CSHIP = 1000
         self.CBAF = 100
         self.CETA = 150
+        
+    def get_schedule_conflicts(self, individual: Dict[str, Any]) -> Dict[str, List]:
+        """스케줄 충돌 검사"""
+        conflicts = {
+            'vessel_conflicts': [],
+            'port_conflicts': [],
+            'temporal_constraints': []
+        }
+        
+        # 선박별 스케줄 충돌 검사
+        for vessel in self.V:
+            vessel_schedules = []
+            for i_idx, schedule_id in enumerate(self.I):
+                schedule_info = self.schedule_data[self.schedule_data['스케줄 번호'] == schedule_id]
+                if not schedule_info.empty and schedule_info['선박명'].iloc[0] == vessel:
+                    vessel_schedules.append((schedule_id, self.ETD_i[schedule_id], self.ETA_i[schedule_id]))
+            
+            # 시간 겹침 검사
+            for i in range(len(vessel_schedules)):
+                for j in range(i+1, len(vessel_schedules)):
+                    s1_id, s1_etd, s1_eta = vessel_schedules[i]
+                    s2_id, s2_etd, s2_eta = vessel_schedules[j]
+                    
+                    if s1_etd <= s2_eta and s2_etd <= s1_eta:  # 시간 겹침
+                        conflicts['vessel_conflicts'].append({
+                            'vessel': vessel,
+                            'schedule1': s1_id,
+                            'schedule2': s2_id,
+                            'conflict_type': 'time_overlap'
+                        })
+        
+        # 항구별 용량 초과 검사
+        for port in self.P:
+            daily_operations = {}
+            for i_idx, schedule_id in enumerate(self.I):
+                schedule_info = self.schedule_data[self.schedule_data['스케줄 번호'] == schedule_id]
+                if not schedule_info.empty:
+                    origin_port = schedule_info['출발항'].iloc[0]
+                    dest_port = schedule_info['도착항'].iloc[0]
+                    
+                    if origin_port == port:
+                        etd_date = self.ETD_i[schedule_id].date()
+                        daily_operations[etd_date] = daily_operations.get(etd_date, 0) + 1
+                    
+                    if dest_port == port:
+                        eta_date = self.ETA_i[schedule_id].date()
+                        daily_operations[eta_date] = daily_operations.get(eta_date, 0) + 1
+            
+            # 일일 최대 처리 능력 초과 검사 (가정: 항구당 최대 10개 스케줄/일)
+            max_capacity = 10
+            for date, operations in daily_operations.items():
+                if operations > max_capacity:
+                    conflicts['port_conflicts'].append({
+                        'port': port,
+                        'date': date,
+                        'operations': operations,
+                        'capacity': max_capacity
+                    })
+        
+        return conflicts
+    
+    def validate_temporal_feasibility(self, individual: Dict[str, Any]) -> Dict[str, Any]:
+        """시간적 실행 가능성 검증"""
+        conflicts = self.get_schedule_conflicts(individual)
+        penalty_score = 0
+        recommendations = []
+        
+        # 선박 충돌 패널티
+        vessel_conflicts = len(conflicts['vessel_conflicts'])
+        if vessel_conflicts > 0:
+            penalty_score += vessel_conflicts * 1000
+            recommendations.append(f"선박 스케줄 충돌 해결 필요: {vessel_conflicts}개")
+        
+        # 항구 용량 패널티
+        port_conflicts = len(conflicts['port_conflicts'])
+        if port_conflicts > 0:
+            penalty_score += port_conflicts * 500
+            recommendations.append(f"항구 용량 초과 해결 필요: {port_conflicts}개")
+        
+        # 용량 제약 검사
+        capacity_violations = 0
+        for i_idx, schedule_id in enumerate(self.I):
+            total_containers = individual['xF'][i_idx] + individual['xE'][i_idx]
+            schedule_info = self.schedule_data[self.schedule_data['스케줄 번호'] == schedule_id]
+            if not schedule_info.empty:
+                route_num = schedule_info['루트번호'].iloc[0]
+                if route_num in self.CAP_v_r:
+                    capacity = self.CAP_v_r[route_num]
+                    if total_containers > capacity:
+                        capacity_violations += 1
+                        penalty_score += (total_containers - capacity) * 10
+        
+        if capacity_violations > 0:
+            recommendations.append(f"선박 용량 초과 해결 필요: {capacity_violations}개 스케줄")
+        
+        return {
+            'is_feasible': penalty_score == 0,
+            'penalty_score': penalty_score,
+            'recommendations': recommendations,
+            'conflicts': conflicts
+        }
+    
+    def get_container_flow_at_time(self, individual: Dict[str, Any], target_time) -> Dict[str, float]:
+        """특정 시점의 컨테이너 흐름 계산"""
+        port_containers = {p: self.I0_p.get(p, 0) for p in self.P}
+        
+        # 타겟 시점까지의 스케줄만 처리
+        for i_idx, schedule_id in enumerate(self.I):
+            if self.ETD_i[schedule_id] <= target_time:
+                schedule_info = self.schedule_data[self.schedule_data['스케줄 번호'] == schedule_id]
+                if not schedule_info.empty:
+                    origin_port = schedule_info['출발항'].iloc[0]
+                    dest_port = schedule_info['도착항'].iloc[0]
+                    
+                    if origin_port in self.P and dest_port in self.P:
+                        # 출발항에서 컨테이너 소모
+                        outgoing = individual['xF'][i_idx] + individual['xE'][i_idx]
+                        port_containers[origin_port] = max(0, port_containers[origin_port] - outgoing)
+                        
+                        # 도착항에서 컨테이너 추가 (ETA가 타겟 시점 이전인 경우)
+                        if self.ETA_i[schedule_id] <= target_time:
+                            incoming = individual['xF'][i_idx] + individual['xE'][i_idx]
+                            port_containers[dest_port] += incoming
+        
+        return port_containers

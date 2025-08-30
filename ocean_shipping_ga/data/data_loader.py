@@ -33,9 +33,6 @@ class DataLoader:
             self.file_paths = file_paths
         self.data = {}
         
-        # 데이터 자동 로드
-        self.load_all_data()
-        
     def load_all_data(self) -> Dict[str, pd.DataFrame]:
         """모든 데이터 파일을 로드하고 정제"""
         print("📂 데이터 로딩 중...")
@@ -66,7 +63,6 @@ class DataLoader:
         print(f"✅ 고정값 데이터: {len(self.data['fixed'])}개 로드")
         
         # 데이터 정제 수행
-        print("\n🔧 데이터 정제 중...")
         self._clean_datetime_columns()
         self._standardize_vessel_names()
         self._restructure_fixed_values()

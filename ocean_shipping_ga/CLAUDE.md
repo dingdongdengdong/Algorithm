@@ -58,7 +58,7 @@ The system minimizes total cost while penalizing constraint violations:
 - **Uniform Crossover**: Probabilistic gene exchange for complex solution spaces
 - **Multi-strategy Mutation**: Fine-tuning + occasional reinitialization (5% chance)
 - **Early Convergence Detection**: Stops when no significant improvement for 50 generations
-- **M1 Mac Optimization**: Uses vectorized operations for performance
+- **Performance Optimization**: Uses vectorized operations for efficiency
 
 ## Dependencies
 Based on imports found in the codebase:

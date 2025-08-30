@@ -37,6 +37,7 @@ class OceanShippingGA:
         
         # 파라미터 초기화
         self.params = GAParameters(self.data_loader, version)
+        self.version = version
         
         # 알고리즘 컴포넌트 초기화
         self.fitness_calculator = FitnessCalculator(self.params)
@@ -44,9 +45,13 @@ class OceanShippingGA:
         self.population_manager = PopulationManager(self.params)
         self.plotter = ResultPlotter(self.params)
         
+        # 실행 시간 추적
+        self.start_time = None
+        self.execution_time = 0.0
+        
     def run(self) -> Tuple[Dict[str, Any], List[float]]:
         """GA 실행"""
-        print("\n🧬 유전 알고리즘 시작 (M1 Mac 최적화)")
+        print("\n🧬 유전 알고리즘 시작 (성능 최적화)")
         print("=" * 60)
         print(f"🏷️ 실행 버전: {self.params.version_description}")
         print(f"📊 설정: Population={self.params.population_size}, Generations={self.params.max_generations}")
@@ -55,7 +60,7 @@ class OceanShippingGA:
         print("=" * 60)
         
         # 초기화
-        start_time = datetime.now()
+        self.start_time = datetime.now()
         population = self.population_manager.initialize_population()
         best_fitness_history = []
         best_individual = None
@@ -106,7 +111,7 @@ class OceanShippingGA:
             
             # 진행 상황 출력
             if generation % 20 == 0 or improvement:
-                elapsed = (datetime.now() - start_time).total_seconds()
+                elapsed = (datetime.now() - self.start_time).total_seconds()
                 print(f"세대 {generation:4d}: 적합도={best['fitness']:8.2f} | "
                       f"다양성={diversity:6.2f} | 변이율={current_mutation_rate:.3f} | "
                       f"정체={stagnation_counter:3d} | {elapsed:.1f}s")
@@ -134,10 +139,10 @@ class OceanShippingGA:
             population = self.genetic_operators.reproduction(parents)
         
         # 최종 결과
-        elapsed_time = (datetime.now() - start_time).total_seconds()
+        self.execution_time = (datetime.now() - self.start_time).total_seconds()
         print("\n" + "=" * 60)
         print("🎯 최적화 완료!")
-        print(f"⏱️ 총 실행 시간: {elapsed_time:.2f}초")
+        print(f"⏱️ 총 실행 시간: {self.execution_time:.2f}초")
         print(f"🏆 최종 적합도: {best_individual['fitness']:.2f}")
         print(f"📈 총 진화 세대: {generation + 1}")
         print("=" * 60)
@@ -151,3 +156,10 @@ class OceanShippingGA:
     def visualize_results(self, best_individual: Dict[str, Any], fitness_history: List[float]):
         """결과 시각화"""
         return self.plotter.visualize_results(best_individual, fitness_history)
+    
+    def save_markdown_report(self, best_individual: Dict[str, Any], fitness_history: List[float], 
+                           output_dir: str = "results") -> str:
+        """마크다운 상세 보고서 저장"""
+        return self.plotter.save_markdown_report(
+            best_individual, fitness_history, self.version, self.execution_time, output_dir
+        )

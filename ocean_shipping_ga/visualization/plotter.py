@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 from typing import Dict, List, Any
+from datetime import datetime
+import os
 from models.parameters import GAParameters
 from algorithms.fitness import FitnessCalculator
 
@@ -137,3 +139,197 @@ class ResultPlotter:
         plt.show()
         
         return fig
+    
+    def generate_markdown_report(self, best_individual: Dict[str, Any], fitness_history: List[float], 
+                                version: str = "Unknown", execution_time: float = 0.0) -> str:
+        """상세한 마크다운 보고서 생성"""
+        
+        # 기본 계산
+        total_cost = self.fitness_calculator.calculate_total_cost(best_individual)
+        penalty = self.fitness_calculator.calculate_penalties(best_individual)
+        
+        # 비용 세부 계산
+        transport_cost = sum(
+            (self.params.CSHIP + self.params.CBAF) * best_individual['xF'][i]
+            for i in range(self.params.num_schedules)
+        )
+        delay_cost = sum(
+            self.params.CETA * self.params.DELAY_i.get(self.params.I[i], 0) * best_individual['xF'][i]
+            for i in range(self.params.num_schedules)
+        )
+        empty_cost = self.params.CEMPTY_SHIP * np.sum(best_individual['xE'])
+        inventory_cost = np.sum(best_individual['y']) * self.params.CINV
+        
+        # 마크다운 보고서 생성
+        report = []
+        report.append("# Ocean Shipping GA Optimization Report")
+        report.append(f"*Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n")
+        
+        # 실행 정보
+        report.append("## 🚀 Execution Summary")
+        report.append(f"- **Version**: {version}")
+        report.append(f"- **Execution Time**: {execution_time:.2f} seconds")
+        report.append(f"- **Generations**: {len(fitness_history)}")
+        report.append(f"- **Population Size**: {self.params.population_size}")
+        report.append(f"- **Crossover Rate**: {self.params.crossover_rate}")
+        report.append(f"- **Mutation Rate**: {self.params.mutation_rate}\n")
+        
+        # 최적해 요약
+        report.append("## 📊 Optimal Solution Summary")
+        report.append(f"- **Final Fitness**: {best_individual['fitness']:,.2f}")
+        report.append(f"- **Total Cost**: ${total_cost:,.2f}")
+        report.append(f"- **Total Penalty**: {penalty:,.2f}")
+        report.append(f"- **Cost per TEU**: ${total_cost / (np.sum(best_individual['xF']) + np.sum(best_individual['xE'])):,.2f}\n")
+        
+        # 컨테이너 할당
+        report.append("## 📦 Container Allocation Overview")
+        total_full = np.sum(best_individual['xF'])
+        total_empty = np.sum(best_individual['xE'])
+        total_containers = total_full + total_empty
+        
+        report.append(f"- **Total Full Containers**: {total_full:,.0f} TEU ({total_full/total_containers*100:.1f}%)")
+        report.append(f"- **Total Empty Containers**: {total_empty:,.0f} TEU ({total_empty/total_containers*100:.1f}%)")
+        report.append(f"- **Total Containers**: {total_containers:,.0f} TEU")
+        report.append(f"- **Average Inventory**: {np.mean(best_individual['y']):,.0f} TEU\n")
+        
+        # 비용 분석
+        report.append("## 💰 Cost Breakdown Analysis")
+        total_operational_cost = transport_cost + delay_cost + empty_cost + inventory_cost
+        
+        report.append("| Cost Category | Amount ($) | Percentage |")
+        report.append("|---------------|------------|------------|")
+        report.append(f"| Transport Cost | {transport_cost:,.2f} | {transport_cost/total_operational_cost*100:.1f}% |")
+        report.append(f"| Delay Penalty | {delay_cost:,.2f} | {delay_cost/total_operational_cost*100:.1f}% |")
+        report.append(f"| Empty Transport | {empty_cost:,.2f} | {empty_cost/total_operational_cost*100:.1f}% |")
+        report.append(f"| Inventory Cost | {inventory_cost:,.2f} | {inventory_cost/total_operational_cost*100:.1f}% |")
+        report.append(f"| **Total Operational** | **{total_operational_cost:,.2f}** | **100.0%** |\n")
+        
+        # 루트별 상세 분석
+        report.append("## 🚢 Route-by-Route Analysis")
+        report.append("### Top Performing Routes")
+        report.append("| Route | Vessel | Full TEU | Demand | Fulfillment | Efficiency |")
+        report.append("|-------|--------|----------|--------|-------------|------------|")
+        
+        route_analysis = []
+        for r in self.params.R:
+            if r in self.params.D_ab:
+                route_schedules = self.params.schedule_data[
+                    self.params.schedule_data['루트번호'] == r
+                ]['스케줄 번호'].unique()
+                
+                total_full = sum(
+                    best_individual['xF'][self.params.I.index(i)]
+                    for i in route_schedules if i in self.params.I
+                )
+                
+                demand = self.params.D_ab[r]
+                fulfillment = (total_full / demand * 100) if demand > 0 else 0
+                efficiency = total_full / (total_full + sum(
+                    best_individual['xE'][self.params.I.index(i)]
+                    for i in route_schedules if i in self.params.I
+                )) if total_full > 0 else 0
+                
+                vessel = self.params.V_r.get(r, "Unknown")
+                route_analysis.append((r, vessel, total_full, demand, fulfillment, efficiency))
+        
+        # 상위 20개 루트만 표시
+        route_analysis.sort(key=lambda x: x[4], reverse=True)  # fulfillment로 정렬
+        for r, vessel, full, demand, fulfillment, efficiency in route_analysis[:20]:
+            report.append(f"| {r} | {vessel[:15]} | {full:,.0f} | {demand:,.0f} | {fulfillment:.1f}% | {efficiency:.1f}% |")
+        
+        report.append("")
+        
+        # 제약조건 분석
+        report.append("## ⚠️ Constraint Analysis")
+        
+        # 용량 제약 위반 체크
+        capacity_violations = 0
+        for i in range(self.params.num_schedules):
+            schedule_id = self.params.I[i]
+            capacity = self.params.CAP_i.get(schedule_id, float('inf'))
+            total_allocated = best_individual['xF'][i] + best_individual['xE'][i]
+            if total_allocated > capacity:
+                capacity_violations += 1
+        
+        # 재고 제약 위반 체크  
+        inventory_violations = 0
+        for j in range(len(self.params.P)):
+            for i in range(self.params.num_schedules):
+                if best_individual['y'][i][j] < 0:
+                    inventory_violations += 1
+        
+        report.append(f"- **Capacity Constraint Violations**: {capacity_violations}")
+        report.append(f"- **Inventory Constraint Violations**: {inventory_violations}")
+        report.append(f"- **Solution Feasibility**: {'✅ Feasible' if capacity_violations == 0 and inventory_violations == 0 else '❌ Infeasible'}\n")
+        
+        # 진화 통계
+        report.append("## 📈 Evolution Statistics")
+        if len(fitness_history) > 1:
+            improvement = fitness_history[-1] - fitness_history[0]
+            max_fitness = max(fitness_history)
+            
+            report.append(f"- **Initial Fitness**: {fitness_history[0]:,.2f}")
+            report.append(f"- **Final Fitness**: {fitness_history[-1]:,.2f}")
+            report.append(f"- **Total Improvement**: {improvement:,.2f}")
+            report.append(f"- **Best Fitness Achieved**: {max_fitness:,.2f}")
+            report.append(f"- **Convergence Rate**: {(improvement/abs(fitness_history[0])*100) if fitness_history[0] != 0 else 0:.2f}%\n")
+        
+        # 항구별 재고 분석
+        report.append("## 🏢 Port Inventory Analysis")
+        report.append("| Port | Avg Inventory | Max Inventory | Min Inventory |")
+        report.append("|------|---------------|---------------|---------------|")
+        
+        for j, port in enumerate(self.params.P[:10]):  # 상위 10개 항구만
+            avg_inv = np.mean(best_individual['y'][:, j])
+            max_inv = np.max(best_individual['y'][:, j])
+            min_inv = np.min(best_individual['y'][:, j])
+            report.append(f"| {port} | {avg_inv:,.0f} | {max_inv:,.0f} | {min_inv:,.0f} |")
+        
+        report.append("")
+        
+        # 권장사항
+        report.append("## 💡 Recommendations")
+        
+        if capacity_violations > 0:
+            report.append(f"- **Capacity Issues**: {capacity_violations} schedules exceed capacity. Consider fleet expansion or route optimization.")
+        
+        if delay_cost > transport_cost * 0.1:
+            report.append("- **Delay Management**: Delay costs are significant. Consider schedule optimization or buffer time.")
+        
+        if empty_cost > total_operational_cost * 0.2:
+            report.append("- **Empty Container Efficiency**: Empty transport costs are high. Consider repositioning strategies.")
+        
+        empty_ratio = total_empty / total_containers
+        if empty_ratio > 0.3:
+            report.append(f"- **Container Utilization**: Empty container ratio is {empty_ratio*100:.1f}%. Focus on demand-supply balancing.")
+        
+        report.append("")
+        
+        # 메타데이터
+        report.append("---")
+        report.append("*Report generated by Ocean Shipping GA Optimizer*")
+        report.append(f"*Data files processed: {len([f for f in ['schedule', 'delay_schedule', 'ship', 'port'] if hasattr(self.params, f + '_data')])} files*")
+        
+        return "\n".join(report)
+    
+    def save_markdown_report(self, best_individual: Dict[str, Any], fitness_history: List[float],
+                           version: str = "Unknown", execution_time: float = 0.0, 
+                           output_dir: str = "results") -> str:
+        """마크다운 보고서를 파일로 저장"""
+        
+        # 결과 디렉토리 생성
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # 파일명 생성
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"ocean_shipping_optimization_report_{version}_{timestamp}.md"
+        filepath = os.path.join(output_dir, filename)
+        
+        # 보고서 생성 및 저장
+        report_content = self.generate_markdown_report(best_individual, fitness_history, version, execution_time)
+        
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(report_content)
+        
+        print(f"\n📄 상세 보고서가 저장되었습니다: {filepath}")
+        return filepath
