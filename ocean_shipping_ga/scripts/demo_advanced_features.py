@@ -17,6 +17,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data.data_loader import DataLoader
 from models.parameters import GAParameters
+from config import get_constant
 from advanced_features.forecasting import DemandForecaster, ForecastIntegrator
 from advanced_features.rolling_optimization import RollingOptimizer, TimeWindowManager
 from advanced_features.adaptive_systems import AdaptiveGA, RealTimeMonitor, LearningSystem
@@ -145,7 +146,7 @@ def demo_adaptive_ga():
         adaptive_ga.start_adaptive_mode()
         
         # 30초 동안 상태 모니터링
-        demo_duration = 30
+        demo_duration = get_constant('performance.quick_test.demo_duration', 30)
         start_time = time.time()
         
         print(f"⏰ Running adaptive system for {demo_duration} seconds...")

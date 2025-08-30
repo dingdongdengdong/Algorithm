@@ -15,6 +15,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from data.data_loader import DataLoader
 from models.parameters import GAParameters
+from config import get_constant
 from .lstm_predictor import LSTMPredictor, SimpleForecastingFallback
 
 
@@ -199,7 +200,7 @@ class DemandForecaster:
             print(f"⚠️ Global prediction failed: {e}")
             recent_mean = recent_demand.mean()
             if np.isnan(recent_mean):
-                recent_mean = 1000  # 기본값
+                recent_mean = get_constant('forecasting.demand.recent_mean_default', 1000)  # 기본값
             global_forecast = np.full(self.forecast_days, recent_mean)
         
         # 루트별 예측

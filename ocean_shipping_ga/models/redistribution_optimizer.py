@@ -12,6 +12,7 @@ import heapq
 from scipy.optimize import linear_sum_assignment
 import warnings
 warnings.filterwarnings('ignore')
+from config import get_constant
 
 
 @dataclass
@@ -40,13 +41,14 @@ class ContainerRedistributionOptimizer:
         """
         self.params = params
         self.distance_matrix = self._initialize_distance_matrix()
-        self.cost_per_teu_km = 0.1  # TEU당 km당 비용 (기본값)
-        self.max_redistribution_distance = 10000  # 최대 재배치 거리 (km)
+        # 설정 파일에서 상수값 로드
+        self.cost_per_teu_km = get_constant('costs.redistribution.cost_per_teu_km', 0.1)  # TEU당 km당 비용 (기본값)
+        self.max_redistribution_distance = get_constant('physical.max_redistribution_distance', 10000)  # 최대 재배치 거리 (km)
         
-        # 재배치 비용 가중치
-        self.distance_weight = 0.4
-        self.urgency_weight = 0.3
-        self.capacity_weight = 0.3
+        # 재배치 비용 가중치 (설정 파일에서 로드)
+        self.distance_weight = get_constant('redistribution_optimization.distance_weight', 0.4)
+        self.urgency_weight = get_constant('redistribution_optimization.urgency_weight', 0.3)
+        self.capacity_weight = get_constant('redistribution_optimization.capacity_weight', 0.3)
         
     def _initialize_distance_matrix(self) -> Dict[str, Dict[str, float]]:
         """항구간 거리 행렬 초기화"""
@@ -232,7 +234,7 @@ class ContainerRedistributionOptimizer:
     
     def optimize_redistribution_paths(self, excess_ports: List[str], 
                                     shortage_ports: List[str],
-                                    max_containers_per_path: int = 1000) -> List[RedistributionPath]:
+                                    max_containers_per_path: int = get_constant('redistribution_optimization.max_containers_per_path', 1000)) -> List[RedistributionPath]:
         """
         최적 재배치 경로 결정
         
@@ -363,7 +365,7 @@ class ContainerRedistributionOptimizer:
         """재배치 컨테이너 수 추정"""
         # 실제 구현에서는 과잉량과 부족량을 정확히 계산
         # 여기서는 기본값 사용
-        base_amount = 500  # 기본 재배치량
+        base_amount = get_constant('physical.base_redistribution_amount', 500)  # 기본 재배치량
         
         # 거리에 따른 조정
         distance = self.distance_matrix.get(excess_port, {}).get(shortage_port, 1000)

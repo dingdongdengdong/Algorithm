@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Any
 from data.data_loader import DataLoader
+from config import get_constant
 
 
 class GAParameters:
@@ -43,9 +44,9 @@ class GAParameters:
         
     def setup_cost_parameters(self):
         """비용 관련 상수 정의 - 고정값 데이터에서 로드"""
-        # 기본값 설정
-        self.KG_PER_TEU = 30000      # TEU당 무게 (kg)
-        self.theta = 0.001           # 빈 컨테이너 최소 비율
+        # 기본값 설정 (설정 파일에서 로드)
+        self.KG_PER_TEU = get_constant('physical.kg_per_teu', 30000)      # TEU당 무게 (kg)
+        self.theta = get_constant('physical.theta', 0.25)                  # 빈 컨테이너 최소 비율 (25%)
         
         # 고정값 데이터에서 비용 파라미터 로드 (개선된 방식)
         fixed_params = self.data_loader.get_fixed_params()
@@ -207,7 +208,7 @@ class GAParameters:
                 'from_schedule': current_schedule,
                 'to_schedule': next_schedule,
                 'gap_days': gap_days,
-                'is_reusable': gap_days >= 1  # 1일 이상 간격이면 재사용 가능
+                'is_reusable': gap_days >= get_constant('data_processing.schedule.min_reuse_gap_days', 1)  # 1일 이상 간격이면 재사용 가능
             })
         return gaps
         
@@ -274,7 +275,7 @@ class GAParameters:
             if r in self.Q_r:
                 self.D_ab[r] = max(1, int(np.ceil(self.Q_r[r] / self.KG_PER_TEU)))
             else:
-                self.D_ab[r] = 1
+                self.D_ab[r] = get_constant('data_processing.defaults.demand_default', 1)
                 
     def setup_capacity_parameters(self):
         """선박 용량 관련 파라미터 설정"""
@@ -287,7 +288,7 @@ class GAParameters:
             if vessel_name in self.CAP_v:
                 self.CAP_v_r[r] = self.CAP_v[vessel_name]
             else:
-                self.CAP_v_r[r] = 10000
+                self.CAP_v_r[r] = get_constant('physical.default_vessel_capacity', 10000)
                 
     def setup_delay_parameters(self):
         """지연 관련 파라미터 설정"""
@@ -321,7 +322,7 @@ class GAParameters:
                 delay = (self.RETA_i[i] - self.ETA_i[i]).days
                 self.DELAY_i[i] = max(0, delay)
             else:
-                self.DELAY_i[i] = 0
+                self.DELAY_i[i] = get_constant('data_processing.defaults.delay_default', 0)
                 
     def setup_initial_inventory(self):
         """초기 재고 설정"""
@@ -393,14 +394,14 @@ class GAParameters:
         self.max_generations = config['max_generations']
         self.convergence_patience = config['convergence_patience']
         
-        # 공통 파라미터
-        self.p_crossover = 0.85
-        self.p_mutation = 0.25
-        self.target_fitness = -3000
+        # 공통 파라미터 (설정 파일에서 로드)
+        self.p_crossover = get_constant('genetic_algorithm.p_crossover', 0.85)
+        self.p_mutation = get_constant('genetic_algorithm.p_mutation', 0.25)
+        self.target_fitness = get_constant('genetic_algorithm.target_fitness', -3000)
         
-        # 수렴 감지 및 조기 종료 파라미터
-        self.convergence_threshold = 0.0005
-        self.stagnation_counter = 0
+        # 수렴 감지 및 조기 종료 파라미터 (설정 파일에서 로드)
+        self.convergence_threshold = get_constant('genetic_algorithm.convergence_threshold', 0.0005)
+        self.stagnation_counter = get_constant('system.initialization.stagnation_counter', 0)
         
         # 성능 추적 파라미터
         self.best_ever_fitness = float('-inf')
@@ -475,9 +476,10 @@ class GAParameters:
     
     def _use_default_cost_params(self):
         """기본 비용 파라미터 설정"""
-        self.CSHIP = 1000
-        self.CBAF = 100
-        self.CETA = 150
+        # 기본값 설정 (설정 파일에서 로드)
+        self.CSHIP = get_constant('costs.default.cship', 1000)
+        self.CBAF = get_constant('costs.default.cbaf', 100)
+        self.CETA = get_constant('costs.default.ceta', 150)
         
     def get_schedule_conflicts(self, individual: Dict[str, Any]) -> Dict[str, List]:
         """스케줄 충돌 검사"""
@@ -527,7 +529,7 @@ class GAParameters:
                         daily_operations[eta_date] = daily_operations.get(eta_date, 0) + 1
             
             # 일일 최대 처리 능력 초과 검사 (가정: 항구당 최대 10개 스케줄/일)
-            max_capacity = 10
+            max_capacity = get_constant('data_processing.defaults.max_capacity', 10)
             for date, operations in daily_operations.items():
                 if operations > max_capacity:
                     conflicts['port_conflicts'].append({

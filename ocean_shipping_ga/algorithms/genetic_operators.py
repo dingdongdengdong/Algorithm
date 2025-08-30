@@ -7,6 +7,7 @@ import numpy as np
 import random
 from typing import List, Tuple, Dict, Any
 from models.parameters import GAParameters
+from config import get_constant
 from .fitness import FitnessCalculator
 
 
@@ -174,13 +175,19 @@ class GeneticOperators:
         # 다양성 정규화 (0-100 범위로 가정)
         normalized_diversity = min(diversity / 100.0, 1.0)
         
+        # 설정 파일에서 상수값 로드
+        diversity_factor_base = get_constant('performance.adaptive.diversity_factor_base', 1.5)
+        diversity_factor_range = get_constant('performance.adaptive.diversity_factor_range', 0.3)
+        generation_factor_base = get_constant('performance.adaptive.generation_factor_base', 1.0)
+        generation_factor_range = get_constant('performance.adaptive.generation_factor_range', 0.3)
+        
         # 다양성이 낮을 때 돌연변이율 증가
-        if normalized_diversity < 0.3:  # 낮은 다양성
-            diversity_factor = 1.5 + (0.3 - normalized_diversity) * 2.0
+        if normalized_diversity < diversity_factor_range:  # 낮은 다양성
+            diversity_factor = diversity_factor_base + (diversity_factor_range - normalized_diversity) * 2.0
         else:  # 적당한 다양성 유지
             diversity_factor = 1.0
         
         # 세대 진행에 따른 조정
-        generation_factor = 1.0 + 0.3 * (generation / self.params.max_generations)
+        generation_factor = generation_factor_base + generation_factor_range * (generation / self.params.max_generations)
         
         return min(0.5, base_rate * diversity_factor * generation_factor)

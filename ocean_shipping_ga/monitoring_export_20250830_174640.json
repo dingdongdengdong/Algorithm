@@ -1,0 +1,40 @@
+{
+  "export_timestamp": "2025-08-30T17:46:40.481941",
+  "system_summary": {
+    "system_status": "critical",
+    "health_score": 0,
+    "last_update": null,
+    "monitoring_enabled": false,
+    "total_alerts": 1,
+    "active_alerts": 1,
+    "recent_alerts_24h": 1,
+    "critical_alerts": 1,
+    "efficiency_score": 0,
+    "imbalance_index": 0,
+    "auto_trigger_success_rate": 0
+  },
+  "alert_summary": {
+    "total_active": 1,
+    "by_severity": {
+      "CRITICAL": 1
+    },
+    "by_category": {
+      "system_status": 1
+    },
+    "oldest_unresolved": "2025-08-30T17:46:39.580156",
+    "most_recent": "2025-08-30T17:46:39.580156"
+  },
+  "recent_metrics": [],
+  "active_alerts": [
+    {
+      "id": "ALERT_000001",
+      "timestamp": "2025-08-30T17:46:39.580156",
+      "severity": "CRITICAL",
+      "category": "system_status",
+      "title": "시스템 상태 변경: healthy → critical",
+      "message": "시스템 헬스 점수: 50.0/100",
+      "affected_ports": [],
+      "acknowledged": false
+    }
+  ]
+}

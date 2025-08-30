@@ -19,6 +19,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from models.ga_optimizer import OceanShippingGA
 from models.parameters import GAParameters
+from config import get_constant
 from .real_time_monitor import RealTimeMonitor
 from .learning_system import LearningSystem
 from ..rolling_optimization import RollingOptimizer, DynamicUpdater
@@ -452,7 +453,7 @@ class AdaptiveGA:
             # 빠른 최적화 실행
             quick_ga = OceanShippingGA(file_paths=None, version='quick')
             quick_ga.params = copy.deepcopy(self.ga_params)
-            quick_ga.params.max_generations = 20  # 빠른 측정을 위해 세대 수 축소
+            quick_ga.params.max_generations = get_constant('performance.quick_test.reduced_generations', 20)  # 빠른 측정을 위해 세대 수 축소
             quick_ga.params.population_size = min(30, quick_ga.params.population_size)
             
             best_solution, fitness_history = quick_ga.run()

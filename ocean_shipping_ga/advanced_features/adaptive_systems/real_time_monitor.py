@@ -20,6 +20,7 @@ import logging
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from models.parameters import GAParameters
+from config import get_constant
 
 
 class RealTimeMonitor:
@@ -41,13 +42,13 @@ class RealTimeMonitor:
         self.ga_params = ga_parameters
         self.monitoring_interval = monitoring_interval
         
-        # 기본 임계값 설정
+        # 기본 임계값 설정 (설정 파일에서 로드)
         self.alert_thresholds = alert_thresholds or {
-            'performance_degradation': 0.2,  # 20% 성능 저하
-            'data_anomaly_score': 0.8,       # 80% 이상 이상치
-            'system_load': 0.9,              # 90% 시스템 부하
-            'memory_usage': 0.85,            # 85% 메모리 사용
-            'response_time': 30.0            # 30초 응답시간
+            'performance_degradation': get_constant('monitoring.alert_thresholds.performance_degradation', 0.2),  # 20% 성능 저하
+            'data_anomaly_score': get_constant('monitoring.alert_thresholds.data_anomaly_score', 0.8),           # 80% 이상 이상치
+            'system_load': get_constant('monitoring.alert_thresholds.system_load', 0.9),                        # 90% 시스템 부하
+            'memory_usage': get_constant('monitoring.alert_thresholds.memory_usage', 0.85),                     # 85% 메모리 사용
+            'response_time': get_constant('monitoring.alert_thresholds.response_time', 30.0)                    # 30초 응답시간
         }
         
         # 모니터링 상태

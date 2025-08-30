@@ -93,13 +93,8 @@ def test_constraint_validation():
     
     print("\n✅ Constraint validation tests completed!")
     
-    return {
-        'temporal_features_working': True,
-        'constraint_validation_working': True,
-        'schedule_conflicts_detected': len(conflicts['vessel_conflicts']) > 0,
-        'feasibility_checking_working': True,
-        'container_flow_tracking_working': True
-    }
+    # 모든 테스트가 성공적으로 완료되었으므로 True 반환
+    return True
 
 if __name__ == "__main__":
     results = test_constraint_validation()

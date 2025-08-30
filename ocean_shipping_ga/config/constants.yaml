@@ -1,0 +1,213 @@
+# Ocean Shipping GA System Constants Configuration
+# 이 파일은 시스템에서 사용되는 모든 상수값들을 중앙에서 관리합니다.
+
+# =============================================================================
+# PHYSICAL CONSTANTS (물리적 상수)
+# =============================================================================
+physical:
+  # Container specifications
+  kg_per_teu: 30000          # TEU당 무게 (kg)
+  theta: 0.25                # 빈 컨테이너 최소 비율 (25%)
+  
+  # Distance and capacity
+  max_redistribution_distance: 10000  # 최대 재배치 거리 (km)
+  base_redistribution_amount: 500     # 기본 재배치량 (TEU)
+  default_vessel_capacity: 10000      # 기본 선박 용량 (TEU)
+
+# =============================================================================
+# COST PARAMETERS (비용 파라미터)
+# =============================================================================
+costs:
+  # Transportation costs (기본값, 데이터에서 로드 시 덮어씀)
+  default:
+    cship: 1000              # 기본 운송비 (USD/TEU)
+    cbaf: 100                # 기본 유류할증료 (USD/TEU)
+    ceta: 150                # 기본 ETA 패널티 (USD/일)
+  
+  # Redistribution costs
+  redistribution:
+    cost_per_teu_km: 0.1     # TEU당 km당 비용 (USD)
+  
+  # Display and reporting
+  display:
+    average_cost_per_teu: 150  # 평균 비용 (USD/TEU, 표시용)
+
+# =============================================================================
+# GA ALGORITHM PARAMETERS (유전 알고리즘 파라미터)
+# =============================================================================
+genetic_algorithm:
+  # Core parameters
+  p_crossover: 0.85          # 교차 확률
+  p_mutation: 0.25           # 기본 돌연변이 확률
+  target_fitness: -3000      # 목표 적합도
+  
+  # Convergence parameters
+  convergence_threshold: 0.0005  # 수렴 임계값 (0.05%)
+  default_convergence_patience: 50  # 기본 수렴 인내심
+  
+  # Fitness weights
+  fitness:
+    cost_weight: 0.7         # 비용 최적화 가중치 (α)
+    balance_weight: 0.3      # 균형 최적화 가중치 (β)
+    imbalance_penalty_scale: 1000  # 불균형 패널티 스케일
+
+# =============================================================================
+# MONITORING AND ALERT PARAMETERS (모니터링 및 알림 파라미터)
+# =============================================================================
+monitoring:
+  # Time intervals (seconds)
+  refresh_interval: 30       # 대시보드 새로고침 간격 (초)
+  monitoring_interval: 60    # 모니터링 간격 (초)
+  min_trigger_interval: 1800 # 최소 트리거 간격 (30분, 초)
+  
+  # Display limits
+  max_display_points: 288    # 최대 표시 포인트 (24시간 * 12)
+  
+  # Alert thresholds
+  alert_thresholds:
+    performance_degradation: 0.2   # 성능 저하 임계값 (20%)
+    data_anomaly_score: 0.8       # 데이터 이상치 임계값 (80%)
+    system_load: 0.9              # 시스템 부하 임계값 (90%)
+    memory_usage: 0.85            # 메모리 사용 임계값 (85%)
+    response_time: 30.0           # 응답시간 임계값 (초)
+
+# =============================================================================
+# IMBALANCE DETECTION PARAMETERS (불균형 감지 파라미터)
+# =============================================================================
+imbalance_detection:
+  # Thresholds
+  critical_shortage_threshold: 0.2   # 심각한 부족 임계값 (20% 이하)
+  shortage_threshold: 0.4            # 부족 임계값 (40% 이하)
+  excess_threshold: 1.6              # 과잉 임계값 (160% 이상)
+  critical_excess_threshold: 2.0     # 심각한 과잉 임계값 (200% 이상)
+  
+  # Time parameters
+  prediction_horizon: 30             # 예측 기간 (일)
+  rolling_window: 14                 # 롤링 윈도우 (일)
+
+# =============================================================================
+# AUTO REDISTRIBUTION PARAMETERS (자동 재배치 파라미터)
+# =============================================================================
+auto_redistribution:
+  # Trigger rules
+  trigger_rules:
+    critical_shortage:
+      threshold: 0.15                # 임계값 (15%)
+      priority: 5                    # 우선순위
+      cooldown_hours: 2             # 쿨다운 시간 (시간)
+      max_daily_triggers: 6         # 일일 최대 트리거 수
+    
+    multi_port_shortage:
+      threshold: 3                   # 임계값 (3개 이상 항구)
+      priority: 4
+      cooldown_hours: 4
+      max_daily_triggers: 4
+    
+    severe_imbalance:
+      threshold: 0.8                 # 임계값 (0.8 이상)
+      priority: 3
+      cooldown_hours: 6
+      max_daily_triggers: 3
+    
+    predicted_risk:
+      threshold: 5                   # 임계값 (5일 이내)
+      priority: 2
+      cooldown_hours: 12
+      max_daily_triggers: 2
+    
+    scheduled:
+      threshold: 0                   # 스케줄 기반
+      priority: 1
+      cooldown_hours: 24
+      max_daily_triggers: 1
+  
+  # Emergency limits
+  emergency:
+    max_containers: 2000             # 긴급 상황 최대 컨테이너 수
+
+# =============================================================================
+# REDISTRIBUTION OPTIMIZATION PARAMETERS (재배치 최적화 파라미터)
+# =============================================================================
+redistribution_optimization:
+  # Weights
+  distance_weight: 0.4               # 거리 가중치
+  urgency_weight: 0.3                # 긴급성 가중치
+  capacity_weight: 0.3               # 용량 가중치
+  
+  # Limits
+  max_containers_per_path: 1000     # 경로당 최대 컨테이너 수
+
+# =============================================================================
+# FORECASTING PARAMETERS (예측 파라미터)
+# =============================================================================
+forecasting:
+  # LSTM parameters
+  lstm:
+    sequence_length: 30              # 시퀀스 길이
+    forecast_horizon: 7              # 예측 기간
+    default_epochs: 50               # 기본 훈련 에포크
+    validation_split: 0.2            # 검증 분할 비율
+  
+  # Demand forecasting
+  demand:
+    recent_mean_default: 1000        # 최근 평균 기본값
+    trend_calculation_days: 7        # 트렌드 계산 기간 (일)
+
+# =============================================================================
+# VISUALIZATION PARAMETERS (시각화 파라미터)
+# =============================================================================
+visualization:
+  # Graph visualization
+  graph:
+    node_size_scale: 1000            # 노드 크기 스케일
+    edge_width_scale: 5              # 엣지 너비 스케일
+  
+  # Chart dimensions
+  charts:
+    bar_width: 0.35                  # 막대 차트 너비
+
+# =============================================================================
+# PERFORMANCE OPTIMIZATION PARAMETERS (성능 최적화 파라미터)
+# =============================================================================
+performance:
+  # Adaptive systems
+  adaptive:
+    diversity_factor_base: 1.5       # 다양성 팩터 기본값
+    diversity_factor_range: 0.3      # 다양성 팩터 범위
+    generation_factor_base: 1.0      # 세대 팩터 기본값
+    generation_factor_range: 0.3     # 세대 팩터 범위
+  
+  # Quick testing
+  quick_test:
+    reduced_generations: 20          # 빠른 테스트용 세대 수 축소
+    demo_duration: 30                # 데모 지속 시간 (초)
+
+# =============================================================================
+# DATA PROCESSING PARAMETERS (데이터 처리 파라미터)
+# =============================================================================
+data_processing:
+  # Schedule reuse
+  schedule:
+    min_reuse_gap_days: 1            # 재사용 최소 간격 (일)
+  
+  # Default values
+  defaults:
+    demand_default: 1                # 기본 수요값
+    capacity_default: 10000          # 기본 용량값
+    delay_default: 0                 # 기본 지연값
+    max_capacity: 10                 # 최대 용량 제한
+
+# =============================================================================
+# SYSTEM BEHAVIOR PARAMETERS (시스템 동작 파라미터)
+# =============================================================================
+system:
+  # Update frequencies
+  update_frequency:
+    redistribution_plan: 10          # 재배치 계획 업데이트 주기 (세대)
+    performance_logging: 20          # 성능 로깅 주기 (세대)
+    detailed_logging: 100            # 상세 로깅 주기 (세대)
+  
+  # Initialization
+  initialization:
+    stagnation_counter: 0            # 초기 정체 카운터
+    execution_time: 0.0              # 초기 실행 시간

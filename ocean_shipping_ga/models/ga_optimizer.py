@@ -10,6 +10,7 @@ from typing import List, Tuple, Dict, Any
 
 from data.data_loader import DataLoader
 from .parameters import GAParameters
+from config import get_constant
 from .individual import Individual
 from .redistribution_optimizer import ContainerRedistributionOptimizer
 from algorithms.fitness import FitnessCalculator
@@ -49,9 +50,9 @@ class OceanShippingGA:
         # 재배치 최적화 시스템 초기화
         self.redistribution_optimizer = ContainerRedistributionOptimizer(self.params)
         
-        # 실행 시간 추적
+        # 실행 시간 추적 (설정 파일에서 로드)
         self.start_time = None
-        self.execution_time = 0.0
+        self.execution_time = get_constant('system.initialization.execution_time', 0.0)
         
         # 재배치 계획 저장
         self.redistribution_plans = []
@@ -71,7 +72,7 @@ class OceanShippingGA:
         population = self.population_manager.initialize_population()
         best_fitness_history = []
         best_individual = None
-        stagnation_counter = 0
+        stagnation_counter = get_constant('system.initialization.stagnation_counter', 0)
         
         # 진화 과정
         for generation in range(self.params.max_generations):
@@ -95,7 +96,7 @@ class OceanShippingGA:
                 self.params.best_ever_fitness = best['fitness']
                 
                 # 최고 개체에 대한 재배치 계획 생성
-                if generation % 10 == 0:  # 10세대마다 재배치 계획 업데이트
+                if generation % get_constant('system.update_frequency.redistribution_plan', 10) == 0:  # 10세대마다 재배치 계획 업데이트
                     self._update_redistribution_plan(best_individual)
             else:
                 stagnation_counter += 1
@@ -121,14 +122,14 @@ class OceanShippingGA:
             self.params.generation_stats.append(generation_stat)
             
             # 진행 상황 출력
-            if generation % 20 == 0 or improvement:
+            if generation % get_constant('system.update_frequency.performance_logging', 20) == 0 or improvement:
                 elapsed = (datetime.now() - self.start_time).total_seconds()
                 print(f"세대 {generation:4d}: 적합도={best['fitness']:8.2f} | "
                       f"다양성={diversity:6.2f} | 변이율={current_mutation_rate:.3f} | "
                       f"정체={stagnation_counter:3d} | {elapsed:.1f}s")
                 
                 # 상세 비용 정보 출력
-                if generation % 100 == 0:
+                if generation % get_constant('system.update_frequency.detailed_logging', 100) == 0:
                     total_cost = self.fitness_calculator.calculate_total_cost(best)
                     penalty = self.fitness_calculator.calculate_penalties(best)
                     print(f"  ├─ 총 비용: ${total_cost:,.0f}")

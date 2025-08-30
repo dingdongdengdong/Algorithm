@@ -10,6 +10,7 @@ from typing import Dict, List, Tuple, Optional
 from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
+from config import get_constant
 
 try:
     import tensorflow as tf
@@ -26,7 +27,7 @@ except ImportError:
 class LSTMPredictor:
     """LSTM 기반 수요 예측기"""
     
-    def __init__(self, sequence_length: int = 30, forecast_horizon: int = 7):
+    def __init__(self, sequence_length: int = None, forecast_horizon: int = None):
         """
         Parameters:
         -----------
@@ -35,8 +36,9 @@ class LSTMPredictor:
         forecast_horizon : int
             예측 기간 (일 수)
         """
-        self.sequence_length = sequence_length
-        self.forecast_horizon = forecast_horizon
+        # 설정 파일에서 기본값 로드
+        self.sequence_length = sequence_length or get_constant('forecasting.lstm.sequence_length', 30)
+        self.forecast_horizon = forecast_horizon or get_constant('forecasting.lstm.forecast_horizon', 7)
         self.scaler = MinMaxScaler() if TENSORFLOW_AVAILABLE else None
         self.model = None
         self.is_trained = False
@@ -89,9 +91,13 @@ class LSTMPredictor:
         self.model.compile(optimizer='adam', loss='mse', metrics=['mae'])
         print("🧠 LSTM model built successfully")
     
-    def train(self, demand_history: pd.DataFrame, epochs: int = 50, validation_split: float = 0.2) -> Dict:
+    def train(self, demand_history: pd.DataFrame, epochs: int = None, validation_split: float = None) -> Dict:
         """모델 훈련"""
         print(f"🎯 Training forecasting model on {len(demand_history)} data points...")
+        
+        # 설정 파일에서 기본값 로드
+        epochs = epochs or get_constant('forecasting.lstm.default_epochs', 50)
+        validation_split = validation_split or get_constant('forecasting.lstm.validation_split', 0.2)
         
         X, y = self.prepare_data(demand_history)
         
@@ -183,7 +189,8 @@ class LSTMPredictor:
     def _predict_statistical(self, recent_data: np.ndarray) -> np.ndarray:
         """통계적 예측 (TensorFlow 대체)"""
         # 추세 + 계절성 기반 예측
-        recent_mean = np.mean(recent_data[-7:]) if len(recent_data) >= 7 else np.mean(recent_data)
+        trend_calculation_days = get_constant('forecasting.demand.trend_calculation_days', 7)
+        recent_mean = np.mean(recent_data[-trend_calculation_days:]) if len(recent_data) >= trend_calculation_days else np.mean(recent_data)
         
         # trend_weights가 제대로 초기화되었는지 확인
         if hasattr(self, 'trend_weights') and self.trend_weights is not None and len(self.trend_weights) > 0:
