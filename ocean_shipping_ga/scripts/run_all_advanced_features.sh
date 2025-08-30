@@ -177,8 +177,8 @@ if [ "$RUN_FORECASTING" = true ]; then
     echo "=============================="
     
     FORECASTING_ARGS="--days $FORECAST_DAYS"
-    if [ "$SAVE_ALL_RESULTS" = true ]; then
-        FORECASTING_ARGS="$FORECASTING_ARGS --save"
+    if [ "$SAVE_ALL_RESULTS" = false ]; then
+        FORECASTING_ARGS="$FORECASTING_ARGS --no-save"
     fi
     
     log_message "Starting demand forecasting with $FORECAST_DAYS days horizon..."
@@ -202,8 +202,8 @@ if [ "$RUN_ROLLING" = true ]; then
     echo "================================"
     
     ROLLING_ARGS="--window-size $WINDOW_SIZE --overlap $OVERLAP_DAYS --generations $GA_GENERATIONS"
-    if [ "$SAVE_ALL_RESULTS" = true ]; then
-        ROLLING_ARGS="$ROLLING_ARGS --save"
+    if [ "$SAVE_ALL_RESULTS" = false ]; then
+        ROLLING_ARGS="$ROLLING_ARGS --no-save"
     fi
     
     log_message "Starting rolling optimization with ${WINDOW_SIZE}d windows..."
@@ -226,8 +226,8 @@ if [ "$RUN_ADAPTIVE" = true ]; then
     echo "==============================="
     
     ADAPTIVE_ARGS="--duration $ADAPTIVE_DURATION --adaptation-interval $ADAPTATION_INTERVAL --strategy balanced"
-    if [ "$SAVE_ALL_RESULTS" = true ]; then
-        ADAPTIVE_ARGS="$ADAPTIVE_ARGS --save"
+    if [ "$SAVE_ALL_RESULTS" = false ]; then
+        ADAPTIVE_ARGS="$ADAPTIVE_ARGS --no-save"
     fi
     
     log_message "Starting adaptive GA for $ADAPTIVE_DURATION seconds..."

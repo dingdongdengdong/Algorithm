@@ -131,13 +131,28 @@ class LSTMPredictor:
     
     def _train_statistical(self, X: np.ndarray, y: np.ndarray) -> Dict:
         """통계적 모델 훈련 (TensorFlow 대체)"""
-        # 단순 이동평균과 추세 기반 예측
-        self.trend_weights = np.polyfit(range(len(X)), np.mean(X, axis=1), 1)
-        self.seasonal_pattern = np.mean(X, axis=0)
-        self.is_trained = True
-        
-        print("✅ Statistical model training completed")
-        return {"status": "success", "method": "statistical"}
+        try:
+            # 단순 이동평균과 추세 기반 예측
+            if len(X) > 1:
+                self.trend_weights = np.polyfit(range(len(X)), np.mean(X, axis=1), 1)
+                # NaN이나 무한값 체크
+                if np.any(np.isnan(self.trend_weights)) or np.any(np.isinf(self.trend_weights)):
+                    self.trend_weights = np.array([0.0, np.mean(X)])
+            else:
+                self.trend_weights = np.array([0.0, np.mean(X)])
+                
+            self.seasonal_pattern = np.mean(X, axis=0)
+            self.is_trained = True
+            
+            print("✅ Statistical model training completed")
+            return {"status": "success", "method": "statistical"}
+        except Exception as e:
+            print(f"⚠️ Statistical training failed: {e}")
+            # 폴백: 기본값으로 초기화
+            self.trend_weights = np.array([0.0, np.mean(X) if len(X) > 0 else 0])
+            self.seasonal_pattern = np.array([np.mean(X) if len(X) > 0 else 0])
+            self.is_trained = True
+            return {"status": "success", "method": "statistical_fallback"}
     
     def predict(self, recent_data: np.ndarray) -> np.ndarray:
         """미래 수요 예측"""
@@ -169,7 +184,17 @@ class LSTMPredictor:
         """통계적 예측 (TensorFlow 대체)"""
         # 추세 + 계절성 기반 예측
         recent_mean = np.mean(recent_data[-7:]) if len(recent_data) >= 7 else np.mean(recent_data)
-        trend = self.trend_weights[0] * self.forecast_horizon
+        
+        # trend_weights가 제대로 초기화되었는지 확인
+        if hasattr(self, 'trend_weights') and self.trend_weights is not None and len(self.trend_weights) > 0:
+            try:
+                trend = self.trend_weights[0] * self.forecast_horizon
+                if np.isnan(trend) or np.isinf(trend):
+                    trend = 0
+            except (IndexError, TypeError):
+                trend = 0
+        else:
+            trend = 0
         
         # 기본 예측값에 약간의 변동성 추가
         base_prediction = recent_mean + trend

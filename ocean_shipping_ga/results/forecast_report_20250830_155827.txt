@@ -1,0 +1,31 @@
+🔮 Ocean Shipping Demand Forecast Report
+============================================================
+📅 Forecast Period: 7 days
+📊 Prediction Date: 2025-08-30
+
+📈 Global Demand Forecast:
+   - Average Daily Demand: 9245.6 TEU
+   - Peak Demand: 10147.0 TEU
+   - Minimum Demand: 8344.2 TEU
+
+📅 Weekly Forecast Summary:
+   - Week 35: 9607.0 TEU/day
+   - Week 36: 9101.0 TEU/day
+
+
+🔗 Forecast Integration Report
+==================================================
+📊 Demand Adjustments:
+   - Total routes: 186
+   - Routes with specific forecasts: 0
+   - Average adjustment factor: 0.805
+
+⚖️ Dynamic Schedule Weights:
+   - Schedules weighted: 215
+   - Weight range: 0.903 - 1.097
+   - Average weight: 0.952
+
+🔮 Forecast Summary:
+   - Forecast horizon: 7 days
+   - Average daily demand: 9245.6 TEU
+   - Peak demand: 10147.0 TEU

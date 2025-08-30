@@ -41,19 +41,11 @@ class DataLoader:
         self.data['schedule'] = pd.read_excel(self.file_paths['schedule'])
         self.data['delayed'] = pd.read_excel(self.file_paths['delayed'])
         
-        # 선박 데이터는 특별한 구조를 가지고 있어서 수동으로 처리
-        vessel_raw = pd.read_excel(self.file_paths['vessel'])
-        vessel_columns = ['선박명', '용량(TEU)']
-        vessel_data = vessel_raw.iloc[2:].reset_index(drop=True)  # 처음 2행 건너뛰기
-        vessel_data.columns = vessel_columns
-        self.data['vessel'] = vessel_data
+        # 선박 데이터 로드 (헤더가 이미 올바르게 설정되어 있음)
+        self.data['vessel'] = pd.read_excel(self.file_paths['vessel'])
         
-        # 항구 데이터도 특별한 구조를 가지고 있어서 수동으로 처리
-        port_raw = pd.read_excel(self.file_paths['port'])
-        port_columns = ['항구명', '위치_위도', '위치_경도']
-        port_data = port_raw.iloc[2:].reset_index(drop=True)  # 처음 2행 건너뛰기
-        port_data.columns = port_columns
-        self.data['port'] = port_data
+        # 항구 데이터 로드 (헤더가 이미 올바르게 설정되어 있음)
+        self.data['port'] = pd.read_excel(self.file_paths['port'])
         self.data['fixed'] = pd.read_excel(self.file_paths['fixed'])
         
         print(f"✅ 스케줄 데이터: {len(self.data['schedule'])}개 로드")
@@ -103,22 +95,32 @@ class DataLoader:
     
     def get_schedule_data(self) -> pd.DataFrame:
         """스케줄 데이터 반환"""
+        if not self.data:
+            self.load_all_data()
         return self.data.get('schedule', pd.DataFrame())
     
     def get_delayed_data(self) -> pd.DataFrame:
         """딜레이 데이터 반환"""
+        if not self.data:
+            self.load_all_data()
         return self.data.get('delayed', pd.DataFrame())
     
     def get_vessel_data(self) -> pd.DataFrame:
         """선박 데이터 반환"""
+        if not self.data:
+            self.load_all_data()
         return self.data.get('vessel', pd.DataFrame())
     
     def get_port_data(self) -> pd.DataFrame:
         """항구 데이터 반환"""
+        if not self.data:
+            self.load_all_data()
         return self.data.get('port', pd.DataFrame())
     
     def get_fixed_data(self) -> pd.DataFrame:
         """고정값 데이터 반환"""
+        if not self.data:
+            self.load_all_data()
         return self.data.get('fixed', pd.DataFrame())
     
     def _get_default_file_paths(self) -> Dict[str, str]:

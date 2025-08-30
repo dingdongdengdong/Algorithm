@@ -78,6 +78,8 @@ import os
 sys.path.append('$PROJECT_ROOT')
 
 from datetime import datetime
+import pandas as pd
+import numpy as np
 from data.data_loader import DataLoader
 from advanced_features.forecasting import DemandForecaster, ForecastIntegrator
 from models.parameters import GAParameters
@@ -92,6 +94,10 @@ try:
     # GA 파라미터 생성
     print('🔧 Initializing parameters...')
     ga_params = GAParameters(data_loader, version='quick')
+    
+    # Python boolean 변수로 변환
+    enable_route_specific = '$ENABLE_ROUTE_SPECIFIC' == 'true'
+    save_results = '$SAVE_RESULTS' == 'true'
     
     # 수요 예측기 생성
     forecaster = DemandForecaster(data_loader, forecast_days=$FORECAST_DAYS)
@@ -112,7 +118,7 @@ try:
         print(f'   ⚠️ Global predictor training: {global_training_result[\"status\"]}')
     
     # 루트별 예측기 훈련 (옵션)
-    if $ENABLE_ROUTE_SPECIFIC:
+    if enable_route_specific:
         print('🛤️ Training route-specific predictors...')
         route_results = forecaster.train_route_predictors()
         print(f'   ✅ Trained {len(route_results)} route-specific predictors')
@@ -130,7 +136,7 @@ try:
     print(f'   - Peak demand: {global_forecast[\"predicted_demand_teu\"].max():.1f} TEU')
     print(f'   - Minimum demand: {global_forecast[\"predicted_demand_teu\"].min():.1f} TEU')
     
-    if $ENABLE_ROUTE_SPECIFIC and forecast_results['route_forecasts']:
+    if enable_route_specific and forecast_results['route_forecasts']:
         print(f'   - Route-specific forecasts: {len(forecast_results[\"route_forecasts\"])} routes')
     
     # GA 파라미터 통합 테스트
@@ -156,7 +162,7 @@ try:
     )
     
     # 결과 저장 (옵션)
-    if $SAVE_RESULTS:
+    if save_results:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         
         # 예측 결과 저장

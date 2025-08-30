@@ -1,0 +1,11 @@
+{
+  "status": "completed",
+  "total_windows": 14,
+  "successful_windows": 0,
+  "failed_windows": 14,
+  "total_optimization_time": 4.041921,
+  "global_solution": null,
+  "performance_tracking": [],
+  "average_fitness": 0,
+  "total_schedules_optimized": 0
+}

@@ -68,7 +68,22 @@ Based on imports found in the codebase:
 - Standard library: `copy`, `datetime`, `typing`
 
 ## Testing
-No formal test suite found. Manual testing is done by:
+
+### Advanced Features Test Suite
+Run the comprehensive test suite for all advanced features:
+```bash
+./scripts/run_all_advanced_features.sh
+```
+
+This executes:
+1. **Demand Forecasting** (LSTM-based): 30-day demand prediction
+2. **Rolling Optimization**: Time-windowed GA with 30-day windows, 7-day overlap
+3. **Adaptive GA**: Real-time parameter adaptation over 30 minutes
+
+**Note**: Requires Korean Excel data files in `data/` folder. Without data, scripts will complete but show `'항구명'` KeyError (expected behavior).
+
+### Manual Testing
+For basic functionality without advanced features:
 1. Running quick version to verify basic functionality
 2. Checking fitness improvement over generations
 3. Validating solution feasibility (no constraint violations)

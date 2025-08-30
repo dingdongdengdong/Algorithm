@@ -11,6 +11,7 @@ from typing import List, Tuple, Dict, Any
 from data.data_loader import DataLoader
 from .parameters import GAParameters
 from .individual import Individual
+from .redistribution_optimizer import ContainerRedistributionOptimizer
 from algorithms.fitness import FitnessCalculator
 from algorithms.genetic_operators import GeneticOperators
 from algorithms.population import PopulationManager
@@ -45,9 +46,15 @@ class OceanShippingGA:
         self.population_manager = PopulationManager(self.params)
         self.plotter = ResultPlotter(self.params)
         
+        # 재배치 최적화 시스템 초기화
+        self.redistribution_optimizer = ContainerRedistributionOptimizer(self.params)
+        
         # 실행 시간 추적
         self.start_time = None
         self.execution_time = 0.0
+        
+        # 재배치 계획 저장
+        self.redistribution_plans = []
         
     def run(self) -> Tuple[Dict[str, Any], List[float]]:
         """GA 실행"""
@@ -74,18 +81,22 @@ class OceanShippingGA:
             # 최고 개체 업데이트 및 수렴 체크
             improvement = False
             if best_individual is None or best['fitness'] > best_individual['fitness']:
-                if best_individual is not None:
+                if best_individual is None:
+                    improvement = True
+                    stagnation_counter = 0
+                else:
                     improvement_rate = (best['fitness'] - best_individual['fitness']) / abs(best_individual['fitness'])
                     if improvement_rate > self.params.convergence_threshold:
                         improvement = True
                         stagnation_counter = 0
                     else:
                         stagnation_counter += 1
-                else:
-                    improvement = True
-                    stagnation_counter = 0
                 best_individual = copy.deepcopy(best)
                 self.params.best_ever_fitness = best['fitness']
+                
+                # 최고 개체에 대한 재배치 계획 생성
+                if generation % 10 == 0:  # 10세대마다 재배치 계획 업데이트
+                    self._update_redistribution_plan(best_individual)
             else:
                 stagnation_counter += 1
             
@@ -147,12 +158,43 @@ class OceanShippingGA:
         print(f"📈 총 진화 세대: {generation + 1}")
         print("=" * 60)
         
+        # 최종 재배치 계획 생성
+        self._update_redistribution_plan(best_individual)
+        
         return best_individual, best_fitness_history
+    
+    def _update_redistribution_plan(self, individual: Dict[str, Any]):
+        """재배치 계획 업데이트"""
+        try:
+            redistribution_plan = self.redistribution_optimizer.generate_redistribution_plan(individual)
+            self.redistribution_plans.append({
+                'generation': len(self.redistribution_plans),
+                'timestamp': datetime.now(),
+                'plan': redistribution_plan
+            })
+            
+            # 최신 계획만 유지 (최대 10개)
+            if len(self.redistribution_plans) > 10:
+                self.redistribution_plans = self.redistribution_plans[-10:]
+                
+        except Exception as e:
+            print(f"⚠️ 재배치 계획 생성 실패: {e}")
+    
+    def get_latest_redistribution_plan(self) -> Dict[str, Any]:
+        """최신 재배치 계획 반환"""
+        if self.redistribution_plans:
+            return self.redistribution_plans[-1]['plan']
+        return None
     
     def print_solution(self, best_individual: Dict[str, Any]):
         """최적해 출력"""
         self.plotter.print_solution_summary(best_individual)
         
+        # 재배치 계획 출력
+        latest_plan = self.get_latest_redistribution_plan()
+        if latest_plan:
+            self.redistribution_optimizer.print_redistribution_plan(latest_plan)
+    
     def visualize_results(self, best_individual: Dict[str, Any], fitness_history: List[float]):
         """결과 시각화"""
         return self.plotter.visualize_results(best_individual, fitness_history)
@@ -163,3 +205,76 @@ class OceanShippingGA:
         return self.plotter.save_markdown_report(
             best_individual, fitness_history, self.version, self.execution_time, output_dir
         )
+    
+    def analyze_container_imbalance(self, individual: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        컨테이너 불균형 분석
+        
+        Parameters:
+        -----------
+        individual : Dict[str, Any], optional
+            분석할 GA 개체 (None이면 최고 개체 사용)
+            
+        Returns:
+        --------
+        Dict[str, Any]
+            불균형 분석 결과
+        """
+        if individual is None:
+            # 최고 개체가 없으면 기본 개체 생성
+            individual = {
+                'xF': np.zeros(self.params.num_schedules),
+                'xE': np.zeros(self.params.num_schedules),
+                'y': np.zeros((self.params.num_schedules, self.params.num_ports))
+            }
+        
+        # 재배치 최적화 시스템을 통한 분석
+        imbalance_analysis = self.redistribution_optimizer.identify_imbalance_ports(individual)
+        
+        # 추가 분석 정보
+        analysis_result = {
+            'imbalance_analysis': imbalance_analysis,
+            'redistribution_plan': self.redistribution_optimizer.generate_redistribution_plan(individual),
+            'statistics': {
+                'total_schedules': self.params.num_schedules,
+                'total_ports': self.params.num_ports,
+                'analysis_timestamp': datetime.now().isoformat()
+            }
+        }
+        
+        return analysis_result
+    
+    def optimize_redistribution(self, individual: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        재배치 최적화 실행
+        
+        Parameters:
+        -----------
+        individual : Dict[str, Any], optional
+            최적화할 GA 개체 (None이면 최고 개체 사용)
+            
+        Returns:
+        --------
+        Dict[str, Any]
+            최적화된 재배치 계획
+        """
+        if individual is None:
+            # 최고 개체가 없으면 기본 개체 생성
+            individual = {
+                'xF': np.zeros(self.params.num_schedules),
+                'xE': np.zeros(self.params.num_schedules),
+                'y': np.zeros((self.params.num_schedules, self.params.num_ports))
+            }
+        
+        # 재배치 최적화 실행
+        redistribution_plan = self.redistribution_optimizer.generate_redistribution_plan(individual)
+        
+        # 계획 저장
+        self.redistribution_plans.append({
+            'generation': len(self.redistribution_plans),
+            'timestamp': datetime.now(),
+            'plan': redistribution_plan,
+            'type': 'manual_optimization'
+        })
+        
+        return redistribution_plan

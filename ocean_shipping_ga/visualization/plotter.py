@@ -158,7 +158,6 @@ class ResultPlotter:
             for i in range(self.params.num_schedules)
         )
         empty_cost = self.params.CEMPTY_SHIP * np.sum(best_individual['xE'])
-        inventory_cost = np.sum(best_individual['y']) * self.params.CINV
         
         # 마크다운 보고서 생성
         report = []
@@ -171,8 +170,8 @@ class ResultPlotter:
         report.append(f"- **Execution Time**: {execution_time:.2f} seconds")
         report.append(f"- **Generations**: {len(fitness_history)}")
         report.append(f"- **Population Size**: {self.params.population_size}")
-        report.append(f"- **Crossover Rate**: {self.params.crossover_rate}")
-        report.append(f"- **Mutation Rate**: {self.params.mutation_rate}\n")
+        report.append(f"- **Crossover Rate**: {self.params.p_crossover}")
+        report.append(f"- **Mutation Rate**: {self.params.p_mutation}\n")
         
         # 최적해 요약
         report.append("## 📊 Optimal Solution Summary")
@@ -194,14 +193,13 @@ class ResultPlotter:
         
         # 비용 분석
         report.append("## 💰 Cost Breakdown Analysis")
-        total_operational_cost = transport_cost + delay_cost + empty_cost + inventory_cost
+        total_operational_cost = transport_cost + delay_cost + empty_cost
         
         report.append("| Cost Category | Amount ($) | Percentage |")
         report.append("|---------------|------------|------------|")
         report.append(f"| Transport Cost | {transport_cost:,.2f} | {transport_cost/total_operational_cost*100:.1f}% |")
         report.append(f"| Delay Penalty | {delay_cost:,.2f} | {delay_cost/total_operational_cost*100:.1f}% |")
         report.append(f"| Empty Transport | {empty_cost:,.2f} | {empty_cost/total_operational_cost*100:.1f}% |")
-        report.append(f"| Inventory Cost | {inventory_cost:,.2f} | {inventory_cost/total_operational_cost*100:.1f}% |")
         report.append(f"| **Total Operational** | **{total_operational_cost:,.2f}** | **100.0%** |\n")
         
         # 루트별 상세 분석
@@ -246,10 +244,14 @@ class ResultPlotter:
         capacity_violations = 0
         for i in range(self.params.num_schedules):
             schedule_id = self.params.I[i]
-            capacity = self.params.CAP_i.get(schedule_id, float('inf'))
-            total_allocated = best_individual['xF'][i] + best_individual['xE'][i]
-            if total_allocated > capacity:
-                capacity_violations += 1
+            # Get route number for this schedule
+            schedule_info = self.params.schedule_data[self.params.schedule_data['스케줄 번호'] == schedule_id]
+            if not schedule_info.empty:
+                route_num = schedule_info['루트번호'].iloc[0]
+                capacity = self.params.CAP_v_r.get(route_num, float('inf'))
+                total_allocated = best_individual['xF'][i] + best_individual['xE'][i]
+                if total_allocated > capacity:
+                    capacity_violations += 1
         
         # 재고 제약 위반 체크  
         inventory_violations = 0

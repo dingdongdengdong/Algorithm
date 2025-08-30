@@ -100,6 +100,11 @@ try:
     print('🔧 Initializing parameters...')
     ga_params = GAParameters(data_loader, version='standard')
     
+    # Python boolean 변수로 변환
+    enable_warm_start = '$ENABLE_WARM_START' == 'true'
+    save_results = '$SAVE_RESULTS' == 'true'
+    export_analysis = '$EXPORT_ANALYSIS' == 'true'
+    
     # 롤링 최적화기 생성
     print('🔄 Creating rolling optimizer...')
     rolling_optimizer = RollingOptimizer(
@@ -129,7 +134,7 @@ try:
     start_time = datetime.now()
     
     rolling_summary = rolling_optimizer.run_rolling_optimization(
-        enable_warm_start=$ENABLE_WARM_START
+        enable_warm_start=enable_warm_start
     )
     
     end_time = datetime.now()
@@ -147,7 +152,7 @@ try:
     print(f'   - Total schedules optimized: {rolling_summary[\"total_schedules_optimized\"]}')
     
     # 성능 분석
-    if $EXPORT_ANALYSIS:
+    if export_analysis:
         print('')
         print('📈 Analyzing performance...')
         performance_analysis = rolling_optimizer.analyze_window_performance()
@@ -174,7 +179,7 @@ try:
         print(f'   - Construction method: {rolling_summary[\"global_solution\"][\"construction_method\"]}')
     
     # 결과 저장
-    if $SAVE_RESULTS:
+    if save_results:
         print('')
         print('💾 Saving results...')
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -205,7 +210,7 @@ try:
             print(f'   🧬 Global solution saved to {solution_file}')
         
         # 성능 분석 저장
-        if $EXPORT_ANALYSIS and performance_analysis.get('fitness_stats'):
+        if export_analysis and performance_analysis.get('fitness_stats'):
             analysis_file = f'results/rolling_analysis_{timestamp}.json'
             with open(analysis_file, 'w') as f:
                 json.dump(performance_analysis, f, default=datetime_converter, indent=2)
@@ -214,7 +219,7 @@ try:
     # 리포트 생성
     print('')
     print('📋 Generating report...')
-    if $EXPORT_ANALYSIS and performance_analysis.get('fitness_stats'):
+    if export_analysis and performance_analysis.get('fitness_stats'):
         report = rolling_optimizer.generate_rolling_report(rolling_summary, performance_analysis)
     else:
         # 기본 리포트 생성
@@ -229,7 +234,7 @@ Total Time: {rolling_summary[\"total_optimization_time\"]:.1f}s
 Average Fitness: {rolling_summary[\"average_fitness\"]:.2f}
 '''
     
-    if $SAVE_RESULTS:
+    if save_results:
         report_file = f'results/rolling_report_{timestamp}.txt'
         with open(report_file, 'w', encoding='utf-8') as f:
             f.write(report)

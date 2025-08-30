@@ -61,19 +61,48 @@ class DemandForecaster:
         daily_demand['date'] = pd.to_datetime(daily_demand['date'])
         daily_demand = daily_demand.set_index('date').sort_index()
         
-        # 누락된 날짜 보간
+        # 누락된 날짜 보간 - 0이 아닌 값으로 보간
         date_range = pd.date_range(
             start=daily_demand.index.min(),
             end=daily_demand.index.max(),
             freq='D'
         )
         
-        daily_demand = daily_demand.reindex(date_range, fill_value=0)
+        # 0이 아닌 값들만 사용하여 보간
+        non_zero_demand = daily_demand[daily_demand['total_demand'] > 0]
+        if len(non_zero_demand) > 0:
+            # 이동평균을 사용하여 보간
+            daily_demand = daily_demand.reindex(date_range)
+            
+            # 0인 값들을 이전/이후 값의 평균으로 보간
+            for i, date in enumerate(daily_demand.index):
+                if daily_demand.loc[date, 'total_demand'] == 0:
+                    # 이전 7일과 이후 7일의 평균 계산
+                    prev_dates = daily_demand.index[max(0, i-7):i]
+                    next_dates = daily_demand.index[i+1:min(len(daily_demand), i+8)]
+                    
+                    prev_values = daily_demand.loc[prev_dates, 'total_demand']
+                    next_values = daily_demand.loc[next_dates, 'total_demand']
+                    
+                    # 0이 아닌 값들만 사용
+                    valid_values = pd.concat([prev_values, next_values])
+                    valid_values = valid_values[valid_values > 0]
+                    
+                    if len(valid_values) > 0:
+                        daily_demand.loc[date, 'total_demand'] = valid_values.mean()
+                    else:
+                        # 유효한 값이 없으면 전체 평균 사용
+                        daily_demand.loc[date, 'total_demand'] = non_zero_demand['total_demand'].mean()
+        else:
+            # 모든 값이 0인 경우 기본값 설정
+            daily_demand = daily_demand.reindex(date_range, fill_value=1000)  # 기본값 1000 TEU
+        
         daily_demand.index.name = 'date'
         
         print(f"✅ Historical demand prepared: {len(daily_demand)} days")
         print(f"   - Average daily demand: {daily_demand['total_demand'].mean():.1f} TEU")
         print(f"   - Peak demand: {daily_demand['total_demand'].max():.1f} TEU")
+        print(f"   - Non-zero days: {len(daily_demand[daily_demand['total_demand'] > 0])} days")
         
         self.historical_demand = daily_demand
         return daily_demand
@@ -155,6 +184,12 @@ class DemandForecaster:
         
         recent_demand = self.historical_demand['total_demand'].tail(30).values
         
+        # NaN 값 체크 및 처리
+        if np.any(np.isnan(recent_demand)):
+            print(f"   ⚠️ Found {np.sum(np.isnan(recent_demand))} NaN values, replacing with mean")
+            recent_mean = np.nanmean(recent_demand)
+            recent_demand = np.nan_to_num(recent_demand, nan=recent_mean)
+        
         try:
             if self.lstm_predictor.is_trained:
                 global_forecast = self.lstm_predictor.predict(recent_demand)
@@ -162,7 +197,10 @@ class DemandForecaster:
                 global_forecast = self.fallback_predictor.predict(self.forecast_days)
         except Exception as e:
             print(f"⚠️ Global prediction failed: {e}")
-            global_forecast = np.full(self.forecast_days, recent_demand.mean())
+            recent_mean = recent_demand.mean()
+            if np.isnan(recent_mean):
+                recent_mean = 1000  # 기본값
+            global_forecast = np.full(self.forecast_days, recent_mean)
         
         # 루트별 예측
         route_forecasts = {}
